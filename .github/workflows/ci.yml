@@ -63,6 +63,10 @@ jobs:
         shell: pwsh
         run: ./scripts/smoke-mcp-stdio.ps1 -BinaryPath ./agentium
 
+      - name: Run MCP SSE Smoke Test
+        shell: pwsh
+        run: ./scripts/smoke-mcp-sse.ps1
+
       - name: Stop HTTP Server
         if: always()
         shell: bash

@@ -79,6 +79,12 @@ MCP stdio smoke test:
 pwsh ./scripts/smoke-mcp-stdio.ps1 -BinaryPath .\agentium.exe
 ```
 
+MCP SSE smoke test:
+
+```powershell
+pwsh ./scripts/smoke-mcp-sse.ps1
+```
+
 ## CI
 
 GitHub Actions workflow is available at [`.github/workflows/ci.yml`](D:\code\Agentium\.github\workflows\ci.yml).
