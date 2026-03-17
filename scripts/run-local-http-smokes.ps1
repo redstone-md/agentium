@@ -1,6 +1,8 @@
 param(
   [string]$BinaryPath = ".\agentium.exe",
   [string]$BaseUrl = "http://127.0.0.1:8080",
+  [string]$TargetUrl = "https://example.com",
+  [int]$DelayAfterNavigateMs = 0,
   [switch]$DisableLeakless
 )
 
@@ -15,7 +17,7 @@ if ($DisableLeakless) {
 $process = Start-Process -FilePath $BinaryPath -ArgumentList "-mode", "http" -PassThru -WindowStyle Hidden
 
 try {
-  pwsh -NoProfile -File .\scripts\smoke-http.ps1 -BaseUrl $BaseUrl -TargetUrl "https://example.com"
+  pwsh -NoProfile -File .\scripts\smoke-http.ps1 -BaseUrl $BaseUrl -TargetUrl $TargetUrl -DelayAfterNavigateMs $DelayAfterNavigateMs
   pwsh -NoProfile -File .\scripts\smoke-mcp-sse.ps1 -BaseUrl $BaseUrl
 }
 finally {

@@ -98,6 +98,18 @@ If local Windows antivirus blocks Rod's `leakless` helper, run:
 pwsh ./scripts/run-local-http-smokes.ps1 -BinaryPath .\agentium.exe -DisableLeakless
 ```
 
+Stealth validation against `bot.sannysoft.com`:
+
+```powershell
+pwsh ./scripts/run-local-http-smokes.ps1 -BinaryPath .\agentium.exe -DisableLeakless -TargetUrl https://bot.sannysoft.com/ -DelayAfterNavigateMs 8000
+```
+
+If the server is already running, use the dedicated assertion wrapper:
+
+```powershell
+pwsh ./scripts/smoke-stealth-sannysoft.ps1
+```
+
 ## CI
 
 GitHub Actions workflow is available at [`.github/workflows/ci.yml`](D:\code\Agentium\.github\workflows\ci.yml).

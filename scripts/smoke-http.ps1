@@ -1,6 +1,9 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:8080",
-  [string]$TargetUrl = "https://example.com"
+  [string]$TargetUrl = "https://example.com",
+  [int]$DelayAfterNavigateMs = 0,
+  [string[]]$RequiredText = @(),
+  [string[]]$ForbiddenText = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -47,6 +50,11 @@ try {
   } | ConvertTo-Json)
   $navigate | ConvertTo-Json -Depth 8
 
+  if ($DelayAfterNavigateMs -gt 0) {
+    Write-Host "Waiting after navigate: $DelayAfterNavigateMs ms"
+    Start-Sleep -Milliseconds $DelayAfterNavigateMs
+  }
+
   Write-Host "Waiting for network idle..."
   $idle = Invoke-RestMethod -Uri "$BaseUrl/v1/sessions/$sessionId/action" -Method Post -ContentType "application/json" -Body (@{
     action = "wait_network_idle"
@@ -61,6 +69,19 @@ try {
   if ($snapshotBytes -gt 20480) {
     throw "snapshot exceeded 20KB limit: $snapshotBytes bytes"
   }
+
+  foreach ($needle in $RequiredText) {
+    if (-not $snapshotJson.Contains($needle, [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw "snapshot did not contain required text: $needle"
+    }
+  }
+
+  foreach ($needle in $ForbiddenText) {
+    if ($snapshotJson.Contains($needle, [System.StringComparison]::OrdinalIgnoreCase)) {
+      throw "snapshot contained forbidden text: $needle"
+    }
+  }
+
   $snapshot | ConvertTo-Json -Depth 8
 }
 finally {

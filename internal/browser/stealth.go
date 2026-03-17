@@ -30,17 +30,42 @@ func ApplyStealth(page *rod.Page, userAgent, locale string) error {
 		const define = (target, key, value) => {
 			Object.defineProperty(target, key, { get: () => value, configurable: true });
 		};
-		define(navigator, 'platform', %q);
-		define(navigator, 'hardwareConcurrency', %d);
-		define(navigator, 'deviceMemory', %d);
-		define(navigator, 'languages', %s);
-		define(navigator, 'webdriver', undefined);
+		const overrideNavigatorValue = (key, value) => {
+			const proto = Object.getPrototypeOf(navigator);
+			const descriptor = Object.getOwnPropertyDescriptor(proto, key);
+			if (!descriptor || descriptor.configurable) {
+				define(proto, key, value);
+				return;
+			}
+			define(navigator, key, value);
+		};
+		const removeWebdriver = () => {
+			try {
+				delete navigator.webdriver;
+			} catch (_) {}
+
+			const proto = Object.getPrototypeOf(navigator);
+			const descriptor = Object.getOwnPropertyDescriptor(proto, 'webdriver');
+			if (descriptor && descriptor.configurable) {
+				try {
+					delete proto.webdriver;
+				} catch (_) {}
+			}
+		};
+		overrideNavigatorValue('platform', %q);
+		overrideNavigatorValue('hardwareConcurrency', %d);
+		overrideNavigatorValue('deviceMemory', %d);
+		overrideNavigatorValue('languages', %s);
+		removeWebdriver();
 		if (window.RTCPeerConnection) {
 			window.RTCPeerConnection = class BlockedPeerConnection {
 				constructor() {
 					throw new Error('WebRTC disabled by Agentium');
 				}
 			};
+		}
+		if (window.webkitRTCPeerConnection) {
+			window.webkitRTCPeerConnection = window.RTCPeerConnection;
 		}
 	})();`, profile.Platform, profile.HardwareConcurrency, profile.DeviceMemory, languages)
 
