@@ -137,6 +137,21 @@ func (f *Factory) releaseRootBrowser(proxyKey string) {
 	}
 }
 
+func (f *Factory) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	var firstErr error
+	for key, browser := range f.browsers {
+		if err := browser.rootBrowser.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		delete(f.browsers, key)
+	}
+
+	return firstErr
+}
+
 func (f *Factory) launchRootBrowser(proxyURL string) (*rod.Browser, error) {
 	launch := launcher.New().
 		Leakless(true).

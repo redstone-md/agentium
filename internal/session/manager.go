@@ -48,3 +48,16 @@ func (m *Manager) Delete(id string) (*Runtime, error) {
 	delete(m.sessions, id)
 	return runtime, nil
 }
+
+func (m *Manager) Drain() []*Runtime {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	runtimes := make([]*Runtime, 0, len(m.sessions))
+	for _, runtime := range m.sessions {
+		runtimes = append(runtimes, runtime)
+	}
+
+	m.sessions = make(map[string]*Runtime)
+	return runtimes
+}

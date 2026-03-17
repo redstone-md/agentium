@@ -91,3 +91,20 @@ func (s *Service) PerformAction(_ context.Context, sessionID string, input model
 
 	return s.actions.Execute(runtime, input)
 }
+
+func (s *Service) Close() error {
+	runtimes := s.manager.Drain()
+
+	var firstErr error
+	for _, runtime := range runtimes {
+		if err := runtime.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	if err := s.factory.Close(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+
+	return firstErr
+}
