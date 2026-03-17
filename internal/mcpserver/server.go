@@ -18,6 +18,7 @@ type createSessionInput struct {
 	Proxy      *string `json:"proxy,omitempty" jsonschema:"Optional upstream proxy URL"`
 	TimezoneID *string `json:"timezone_id,omitempty" jsonschema:"Optional IANA timezone ID"`
 	UserAgent  *string `json:"user_agent,omitempty" jsonschema:"Optional browser user agent"`
+	ProfileID  *string `json:"profile_id,omitempty" jsonschema:"Optional stable fingerprint profile identifier"`
 }
 
 type sessionOutput struct {
@@ -64,6 +65,10 @@ func (s *Server) Build() *mcp.Server {
 					"type":        "string",
 					"description": "Optional browser user agent",
 				},
+				"profile_id": map[string]any{
+					"type":        "string",
+					"description": "Optional stable fingerprint profile identifier",
+				},
 			},
 			"additionalProperties": false,
 		},
@@ -101,6 +106,9 @@ func (s *Server) createSession(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	}
 	if input.UserAgent != nil {
 		options.UserAgent = *input.UserAgent
+	}
+	if input.ProfileID != nil {
+		options.ProfileID = *input.ProfileID
 	}
 
 	id, err := s.service.CreateSession(ctx, options)

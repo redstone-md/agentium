@@ -27,6 +27,10 @@ func ValidateSessionOptions(input model.SessionOptions) error {
 		return errors.New("user_agent is too long")
 	}
 
+	if len(strings.TrimSpace(input.ProfileID)) > 128 {
+		return errors.New("profile_id is too long")
+	}
+
 	return nil
 }
 

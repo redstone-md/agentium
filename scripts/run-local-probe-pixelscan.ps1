@@ -2,6 +2,7 @@ param(
   [string]$BinaryPath = ".\agentium.exe",
   [string]$BaseUrl = "http://127.0.0.1:8080",
   [string]$TargetUrl = "https://pixelscan.net/fingerprint-check",
+  [string]$ProfileId = "",
   [switch]$DisableLeakless
 )
 
@@ -16,7 +17,17 @@ if ($DisableLeakless) {
 $process = Start-Process -FilePath $BinaryPath -ArgumentList "-mode", "http" -PassThru -WindowStyle Hidden
 
 try {
-  pwsh -NoProfile -File .\scripts\probe-pixelscan.ps1 -BaseUrl $BaseUrl -TargetUrl $TargetUrl
+  $args = @(
+    "-NoProfile",
+    "-File", ".\scripts\probe-pixelscan.ps1",
+    "-BaseUrl", $BaseUrl,
+    "-TargetUrl", $TargetUrl
+  )
+  if ($ProfileId) {
+    $args += @("-ProfileId", $ProfileId)
+  }
+
+  pwsh @args
 }
 finally {
   if ($process -and -not $process.HasExited) {

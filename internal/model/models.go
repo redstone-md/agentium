@@ -7,6 +7,7 @@ type SessionOptions struct {
 	TimezoneID string `json:"timezone_id,omitempty"`
 	Locale     string `json:"locale,omitempty"`
 	UserAgent  string `json:"user_agent,omitempty"`
+	ProfileID  string `json:"profile_id,omitempty"`
 }
 
 type Viewport struct {

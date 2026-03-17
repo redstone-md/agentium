@@ -1,6 +1,7 @@
 param(
   [string]$BinaryPath = ".\agentium.exe",
   [string]$BaseUrl = "http://127.0.0.1:8080",
+  [string]$ProfileId = "",
   [switch]$DisableLeakless
 )
 
@@ -15,7 +16,16 @@ if ($DisableLeakless) {
 $process = Start-Process -FilePath $BinaryPath -ArgumentList "-mode", "http" -PassThru -WindowStyle Hidden
 
 try {
-  pwsh -NoProfile -File .\scripts\smoke-stealth-pixelscan.ps1 -BaseUrl $BaseUrl
+  $args = @(
+    "-NoProfile",
+    "-File", ".\scripts\smoke-stealth-pixelscan.ps1",
+    "-BaseUrl", $BaseUrl
+  )
+  if ($ProfileId) {
+    $args += @("-ProfileId", $ProfileId)
+  }
+
+  pwsh @args
 }
 finally {
   if ($process -and -not $process.HasExited) {

@@ -2,6 +2,7 @@ param(
   [string]$BaseUrl = "http://127.0.0.1:8080",
   [string]$TargetUrl = "https://pixelscan.net/fingerprint-check",
   [string]$Locale = "",
+  [string]$ProfileId = "",
   [int]$DelayAfterNavigateSeconds = 15
 )
 
@@ -44,6 +45,9 @@ Wait-ForHealth -Url $BaseUrl | Out-Null
 $sessionOptions = @{}
 if ($Locale) {
   $sessionOptions.locale = $Locale
+}
+if ($ProfileId) {
+  $sessionOptions.profile_id = $ProfileId
 }
 
 $session = Invoke-RestMethod -Uri "$BaseUrl/v1/sessions" -Method Post -ContentType "application/json" -Body ($sessionOptions | ConvertTo-Json)

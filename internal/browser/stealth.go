@@ -16,6 +16,11 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 		"vendor":              profile.Vendor,
 		"webglVendor":         profile.WebGLVendor,
 		"webglRenderer":       profile.WebGLRenderer,
+		"fingerprintSeed":     profile.FingerprintSeed,
+		"canvasNoiseR":        profile.CanvasNoiseR,
+		"canvasNoiseG":        profile.CanvasNoiseG,
+		"canvasNoiseB":        profile.CanvasNoiseB,
+		"audioNoise":          profile.AudioNoise,
 		"viewportWidth":       profile.ViewportWidth,
 		"viewportHeight":      profile.ViewportHeight,
 		"screenWidth":         profile.ScreenWidth,
@@ -165,6 +170,23 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 					},
 					configurable: true
 				});
+				const nativeReadPixels = ctor.prototype.readPixels;
+				if (typeof nativeReadPixels === 'function') {
+					Object.defineProperty(ctor.prototype, 'readPixels', {
+						value: function() {
+							const output = nativeReadPixels.apply(this, arguments);
+							const pixels = arguments[6];
+							if (pixels && typeof pixels.length === 'number' && pixels.length > 4) {
+								const pixelIndex = Math.min(pixels.length - 4, Math.max(0, (profile.fingerprintSeed %% 16) * 4));
+								pixels[pixelIndex] = Math.max(0, Math.min(255, pixels[pixelIndex] + profile.canvasNoiseR));
+								pixels[pixelIndex + 1] = Math.max(0, Math.min(255, pixels[pixelIndex + 1] + profile.canvasNoiseG));
+								pixels[pixelIndex + 2] = Math.max(0, Math.min(255, pixels[pixelIndex + 2] + profile.canvasNoiseB));
+							}
+							return output;
+						},
+						configurable: true
+					});
+				}
 			};
 			patchContext(window.WebGLRenderingContext);
 			patchContext(window.WebGL2RenderingContext);
@@ -191,6 +213,136 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 			define(window, 'outerHeight', profile.viewportHeight || profile.availHeight);
 			define(window, 'devicePixelRatio', profile.deviceScaleFactor);
 		};
+		const patchCanvas = () => {
+			const patchedImageData = new WeakSet();
+			const applyNoiseToImageData = (imageData) => {
+				if (!imageData || !imageData.data || imageData.data.length < 4 || patchedImageData.has(imageData)) {
+					return imageData;
+				}
+				const index = (profile.canvasNoiseR + profile.canvasNoiseG + profile.canvasNoiseB) %% 16;
+				const offset = Math.abs(index) * 4;
+				const maxIndex = imageData.data.length - 4;
+				const pixelIndex = Math.min(offset, maxIndex);
+				imageData.data[pixelIndex] = Math.max(0, Math.min(255, imageData.data[pixelIndex] + profile.canvasNoiseR));
+				imageData.data[pixelIndex + 1] = Math.max(0, Math.min(255, imageData.data[pixelIndex + 1] + profile.canvasNoiseG));
+				imageData.data[pixelIndex + 2] = Math.max(0, Math.min(255, imageData.data[pixelIndex + 2] + profile.canvasNoiseB));
+				patchedImageData.add(imageData);
+				return imageData;
+			};
+			const patchContext = (ctor) => {
+				if (!ctor || !ctor.prototype) {
+					return;
+				}
+				const nativeGetImageData = ctor.prototype.getImageData;
+				if (typeof nativeGetImageData === 'function') {
+					Object.defineProperty(ctor.prototype, 'getImageData', {
+						value: function() {
+							return applyNoiseToImageData(nativeGetImageData.apply(this, arguments));
+						},
+						configurable: true
+					});
+				}
+			};
+			patchContext(window.CanvasRenderingContext2D);
+			if (window.OffscreenCanvasRenderingContext2D) {
+				patchContext(window.OffscreenCanvasRenderingContext2D);
+			}
+			const patchCanvasExport = (ctor) => {
+				if (!ctor || !ctor.prototype) {
+					return;
+				}
+				const nativeToDataURL = ctor.prototype.toDataURL;
+				if (typeof nativeToDataURL === 'function') {
+					Object.defineProperty(ctor.prototype, 'toDataURL', {
+						value: function() {
+							try {
+								const width = Math.max(1, this.width || 1);
+								const height = Math.max(1, this.height || 1);
+								const clone = document.createElement('canvas');
+								clone.width = width;
+								clone.height = height;
+								const cloneCtx = clone.getContext('2d');
+								if (cloneCtx && typeof cloneCtx.drawImage === 'function' && typeof cloneCtx.getImageData === 'function' && typeof cloneCtx.putImageData === 'function') {
+									cloneCtx.drawImage(this, 0, 0);
+									const imageData = cloneCtx.getImageData(0, 0, Math.min(width, 32), Math.min(height, 32));
+									cloneCtx.putImageData(applyNoiseToImageData(imageData), 0, 0);
+									return nativeToDataURL.apply(clone, arguments);
+								}
+							} catch (_) {}
+							return nativeToDataURL.apply(this, arguments);
+						},
+						configurable: true
+					});
+				}
+			};
+			patchCanvasExport(window.HTMLCanvasElement);
+			if (window.OffscreenCanvas) {
+				patchCanvasExport(window.OffscreenCanvas);
+			}
+		};
+		const patchAudio = () => {
+			const patchedChannels = new WeakSet();
+			const patchChannel = (channel) => {
+				if (!channel || !channel.length || patchedChannels.has(channel)) {
+					return channel;
+				}
+				const index = Math.min(channel.length - 1, Math.max(0, profile.fingerprintSeed %% 32));
+				channel[index] = channel[index] + profile.audioNoise;
+				patchedChannels.add(channel);
+				return channel;
+			};
+			const nativeGetChannelData = window.AudioBuffer && window.AudioBuffer.prototype.getChannelData;
+			if (typeof nativeGetChannelData === 'function') {
+				Object.defineProperty(window.AudioBuffer.prototype, 'getChannelData', {
+					value: function() {
+						return patchChannel(nativeGetChannelData.apply(this, arguments));
+					},
+					configurable: true
+				});
+			}
+			const nativeCopyFromChannel = window.AudioBuffer && window.AudioBuffer.prototype.copyFromChannel;
+			if (typeof nativeCopyFromChannel === 'function') {
+				Object.defineProperty(window.AudioBuffer.prototype, 'copyFromChannel', {
+					value: function(destination) {
+						const output = nativeCopyFromChannel.apply(this, arguments);
+						if (destination && destination.length) {
+							patchChannel(destination);
+						}
+						return output;
+					},
+					configurable: true
+				});
+			}
+			const patchRenderedBuffer = (buffer) => {
+				if (!buffer || typeof buffer.getChannelData !== 'function' || typeof buffer.numberOfChannels !== 'number') {
+					return buffer;
+				}
+				for (let channel = 0; channel < buffer.numberOfChannels; channel += 1) {
+					try {
+						patchChannel(buffer.getChannelData(channel));
+					} catch (_) {}
+				}
+				return buffer;
+			};
+			const patchOfflineContext = (ctor) => {
+				if (!ctor || !ctor.prototype || typeof ctor.prototype.startRendering !== 'function') {
+					return;
+				}
+				const nativeStartRendering = ctor.prototype.startRendering;
+				Object.defineProperty(ctor.prototype, 'startRendering', {
+					value: function() {
+						const rendered = nativeStartRendering.apply(this, arguments);
+						if (rendered && typeof rendered.then === 'function') {
+							return rendered.then((buffer) => patchRenderedBuffer(buffer));
+						}
+						return patchRenderedBuffer(rendered);
+					},
+					configurable: true
+				});
+			};
+			patchOfflineContext(window.OfflineAudioContext);
+			patchOfflineContext(window.webkitOfflineAudioContext);
+		};
 		overrideNavigatorValue('platform', profile.platform);
 		overrideNavigatorValue('userAgent', profile.userAgent);
 		overrideNavigatorValue('vendor', profile.vendor);
@@ -204,6 +356,8 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 		patchWebRTC();
 		patchWebGL();
 		patchScreen();
+		patchCanvas();
+		patchAudio();
 	})();`, payload)
 
 	if _, err := (proto.PageAddScriptToEvaluateOnNewDocument{

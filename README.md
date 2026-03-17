@@ -129,7 +129,7 @@ Stealth validation against `pixelscan.net`:
 pwsh ./scripts/run-local-stealth-pixelscan.ps1 -BinaryPath .\agentium.exe -DisableLeakless
 ```
 
-This flow leaves `locale` empty by default so Agentium can auto-sync language and timezone to the current IP profile.
+This flow leaves `locale` empty by default so Agentium can auto-sync language and timezone to the current IP profile. For repeatable checks against the same anti-detect profile, pass `-ProfileId work-es-1`.
 
 If the server is already running, use:
 

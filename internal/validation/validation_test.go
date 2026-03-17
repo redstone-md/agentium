@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"strings"
 	"testing"
 
 	"agentium/internal/model"
@@ -28,5 +29,12 @@ func TestValidateActionRequestAcceptsNavigate(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("expected navigate request to pass validation: %v", err)
+	}
+}
+
+func TestValidateSessionOptionsRejectsLongProfileID(t *testing.T) {
+	err := ValidateSessionOptions(model.SessionOptions{ProfileID: strings.Repeat("a", 129)})
+	if err == nil {
+		t.Fatal("expected long profile_id to fail validation")
 	}
 }

@@ -21,6 +21,11 @@ type Profile struct {
 	Vendor              string
 	WebGLVendor         string
 	WebGLRenderer       string
+	FingerprintSeed     uint32
+	CanvasNoiseR        int
+	CanvasNoiseG        int
+	CanvasNoiseB        int
+	AudioNoise          float64
 	ViewportWidth       int
 	ViewportHeight      int
 	ScreenWidth         int
@@ -97,11 +102,12 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessi
 		MaxTouchPoints:      0,
 		UserAgentMetadata:   uaProfile.Metadata,
 	}
-	templateKey := sessionSeed
-	if templateKey == "" {
-		templateKey = options.Proxy + "|" + effectiveUA + "|" + locale + "|" + timezoneID
-	}
-	template := selectHardwareTemplate(uaProfile.OSFamily, stableSeed(templateKey))
+	templateKey := stableFingerprintKey(options, effectiveUA, locale, timezoneID, sessionSeed)
+	seed := stableSeed(templateKey)
+	profile.FingerprintSeed = seed
+	profile.CanvasNoiseR, profile.CanvasNoiseG, profile.CanvasNoiseB = canvasNoise(seed)
+	profile.AudioNoise = audioNoise(seed)
+	template := selectHardwareTemplate(uaProfile.OSFamily, seed)
 	profile.ViewportWidth = template.ViewportWidth
 	profile.ViewportHeight = template.ViewportHeight
 	profile.ScreenWidth = template.ScreenWidth
@@ -111,6 +117,18 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessi
 	profile.DeviceScaleFactor = template.DeviceScaleFactor
 	profile.ColorDepth = template.ColorDepth
 	profile.PixelDepth = template.PixelDepth
+	if template.WebGLVendor != "" {
+		profile.WebGLVendor = template.WebGLVendor
+	}
+	if template.WebGLRenderer != "" {
+		profile.WebGLRenderer = template.WebGLRenderer
+	}
+	if template.HardwareConcurrency > 0 {
+		profile.HardwareConcurrency = template.HardwareConcurrency
+	}
+	if template.DeviceMemory > 0 {
+		profile.DeviceMemory = template.DeviceMemory
+	}
 
 	if strings.TrimSpace(options.UserAgent) == "" {
 		applyNativeMetrics(&profile, native)
@@ -128,38 +146,11 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessi
 }
 
 func applyNativeMetrics(profile *Profile, native NativeMetrics) {
-	if native.WebGLVendor != "" {
-		profile.WebGLVendor = native.WebGLVendor
-	}
-	if native.WebGLRenderer != "" {
-		profile.WebGLRenderer = native.WebGLRenderer
-	}
-	if native.ScreenWidth > 0 {
-		profile.ScreenWidth = native.ScreenWidth
-	}
-	if native.ScreenHeight > 0 {
-		profile.ScreenHeight = native.ScreenHeight
-	}
-	if native.AvailWidth > 0 {
-		profile.AvailWidth = native.AvailWidth
-	}
-	if native.AvailHeight > 0 {
-		profile.AvailHeight = native.AvailHeight
-	}
-	if native.DevicePixelRatio > 0 {
-		profile.DeviceScaleFactor = native.DevicePixelRatio
-	}
 	if native.ColorDepth > 0 {
 		profile.ColorDepth = native.ColorDepth
 	}
 	if native.PixelDepth > 0 {
 		profile.PixelDepth = native.PixelDepth
-	}
-	if native.AvailWidth > 0 {
-		profile.ViewportWidth = native.AvailWidth
-	}
-	if native.AvailHeight > 0 {
-		profile.ViewportHeight = native.AvailHeight
 	}
 }
 
@@ -301,34 +292,38 @@ func findMatch(pattern *regexp.Regexp, value string, group int) string {
 }
 
 type hardwareTemplate struct {
-	ViewportWidth     int
-	ViewportHeight    int
-	ScreenWidth       int
-	ScreenHeight      int
-	AvailWidth        int
-	AvailHeight       int
-	DeviceScaleFactor float64
-	ColorDepth        int
-	PixelDepth        int
+	ViewportWidth       int
+	ViewportHeight      int
+	ScreenWidth         int
+	ScreenHeight        int
+	AvailWidth          int
+	AvailHeight         int
+	DeviceScaleFactor   float64
+	ColorDepth          int
+	PixelDepth          int
+	WebGLVendor         string
+	WebGLRenderer       string
+	HardwareConcurrency int
+	DeviceMemory        int
 }
 
 var windowsTemplates = []hardwareTemplate{
-	{ViewportWidth: 1365, ViewportHeight: 728, ScreenWidth: 1366, ScreenHeight: 768, AvailWidth: 1366, AvailHeight: 728, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
-	{ViewportWidth: 1536, ViewportHeight: 824, ScreenWidth: 1536, ScreenHeight: 864, AvailWidth: 1536, AvailHeight: 824, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
-	{ViewportWidth: 1600, ViewportHeight: 860, ScreenWidth: 1600, ScreenHeight: 900, AvailWidth: 1600, AvailHeight: 860, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
-	{ViewportWidth: 1920, ViewportHeight: 1040, ScreenWidth: 1920, ScreenHeight: 1080, AvailWidth: 1920, AvailHeight: 1040, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
+	{ViewportWidth: 1365, ViewportHeight: 728, ScreenWidth: 1366, ScreenHeight: 768, AvailWidth: 1366, AvailHeight: 728, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24, WebGLVendor: "Google Inc. (Intel)", WebGLRenderer: "ANGLE (Intel, Intel(R) UHD Graphics 620 Direct3D11 vs_5_0 ps_5_0, D3D11)", HardwareConcurrency: 4, DeviceMemory: 8},
+	{ViewportWidth: 1536, ViewportHeight: 824, ScreenWidth: 1536, ScreenHeight: 864, AvailWidth: 1536, AvailHeight: 824, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24, WebGLVendor: "Google Inc. (Intel)", WebGLRenderer: "ANGLE (Intel, Intel(R) Iris(R) Xe Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)", HardwareConcurrency: 8, DeviceMemory: 8},
+	{ViewportWidth: 1600, ViewportHeight: 860, ScreenWidth: 1600, ScreenHeight: 900, AvailWidth: 1600, AvailHeight: 860, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24, WebGLVendor: "Google Inc. (AMD)", WebGLRenderer: "ANGLE (AMD, AMD Radeon(TM) Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)", HardwareConcurrency: 8, DeviceMemory: 16},
+	{ViewportWidth: 1920, ViewportHeight: 1040, ScreenWidth: 1920, ScreenHeight: 1080, AvailWidth: 1920, AvailHeight: 1040, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24, WebGLVendor: "Google Inc. (NVIDIA)", WebGLRenderer: "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 Direct3D11 vs_5_0 ps_5_0, D3D11)", HardwareConcurrency: 8, DeviceMemory: 16},
 }
 
 var macTemplates = []hardwareTemplate{
-	{ViewportWidth: 1440, ViewportHeight: 860, ScreenWidth: 1440, ScreenHeight: 900, AvailWidth: 1440, AvailHeight: 860, DeviceScaleFactor: 2, ColorDepth: 24, PixelDepth: 24},
-	{ViewportWidth: 1512, ViewportHeight: 945, ScreenWidth: 1512, ScreenHeight: 982, AvailWidth: 1512, AvailHeight: 945, DeviceScaleFactor: 2, ColorDepth: 24, PixelDepth: 24},
-	{ViewportWidth: 1680, ViewportHeight: 1010, ScreenWidth: 1680, ScreenHeight: 1050, AvailWidth: 1680, AvailHeight: 1010, DeviceScaleFactor: 2, ColorDepth: 24, PixelDepth: 24},
+	{ViewportWidth: 1440, ViewportHeight: 860, ScreenWidth: 1440, ScreenHeight: 900, AvailWidth: 1440, AvailHeight: 860, DeviceScaleFactor: 2, ColorDepth: 24, PixelDepth: 24, WebGLVendor: "Intel Inc.", WebGLRenderer: "Intel Iris OpenGL Engine", HardwareConcurrency: 8, DeviceMemory: 8},
+	{ViewportWidth: 1512, ViewportHeight: 945, ScreenWidth: 1512, ScreenHeight: 982, AvailWidth: 1512, AvailHeight: 945, DeviceScaleFactor: 2, ColorDepth: 24, PixelDepth: 24, WebGLVendor: "Apple", WebGLRenderer: "Apple M1", HardwareConcurrency: 8, DeviceMemory: 8},
+	{ViewportWidth: 1680, ViewportHeight: 1010, ScreenWidth: 1680, ScreenHeight: 1050, AvailWidth: 1680, AvailHeight: 1010, DeviceScaleFactor: 2, ColorDepth: 24, PixelDepth: 24, WebGLVendor: "AMD", WebGLRenderer: "AMD Radeon Pro 5300M OpenGL Engine", HardwareConcurrency: 8, DeviceMemory: 16},
 }
 
 var linuxTemplates = []hardwareTemplate{
-	{ViewportWidth: 1365, ViewportHeight: 728, ScreenWidth: 1366, ScreenHeight: 768, AvailWidth: 1366, AvailHeight: 728, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
-	{ViewportWidth: 1600, ViewportHeight: 860, ScreenWidth: 1600, ScreenHeight: 900, AvailWidth: 1600, AvailHeight: 860, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
-	{ViewportWidth: 1920, ViewportHeight: 1040, ScreenWidth: 1920, ScreenHeight: 1080, AvailWidth: 1920, AvailHeight: 1040, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
+	{ViewportWidth: 1365, ViewportHeight: 728, ScreenWidth: 1366, ScreenHeight: 768, AvailWidth: 1366, AvailHeight: 728, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24, WebGLVendor: "Google Inc. (Intel)", WebGLRenderer: "ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6)", HardwareConcurrency: 4, DeviceMemory: 8},
+	{ViewportWidth: 1600, ViewportHeight: 860, ScreenWidth: 1600, ScreenHeight: 900, AvailWidth: 1600, AvailHeight: 860, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24, WebGLVendor: "Google Inc. (AMD)", WebGLRenderer: "ANGLE (AMD, AMD Radeon Vega 8 Graphics (raven, LLVM 15.0.7), OpenGL 4.6)", HardwareConcurrency: 8, DeviceMemory: 8},
+	{ViewportWidth: 1920, ViewportHeight: 1040, ScreenWidth: 1920, ScreenHeight: 1080, AvailWidth: 1920, AvailHeight: 1040, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24, WebGLVendor: "Google Inc. (NVIDIA)", WebGLRenderer: "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 Ti/PCIe/SSE2, OpenGL 4.6)", HardwareConcurrency: 8, DeviceMemory: 16},
 }
 
 func selectHardwareTemplate(osFamily string, seed uint32) hardwareTemplate {
@@ -347,4 +342,40 @@ func stableSeed(value string) uint32 {
 	hasher := fnv.New32a()
 	_, _ = hasher.Write([]byte(value))
 	return hasher.Sum32()
+}
+
+func stableFingerprintKey(options model.SessionOptions, effectiveUA, locale, timezoneID, sessionSeed string) string {
+	if value := strings.TrimSpace(options.ProfileID); value != "" {
+		return "profile:" + value
+	}
+
+	parts := []string{
+		strings.TrimSpace(options.Proxy),
+		strings.TrimSpace(effectiveUA),
+		strings.TrimSpace(locale),
+		strings.TrimSpace(timezoneID),
+	}
+	if joined := strings.Join(parts, "|"); strings.Trim(joined, "|") != "" {
+		return joined
+	}
+
+	return sessionSeed
+}
+
+func canvasNoise(seed uint32) (int, int, int) {
+	r := int(seed%5) - 2
+	g := int((seed/7)%5) - 2
+	b := int((seed/13)%5) - 2
+	if r == 0 && g == 0 && b == 0 {
+		r = 1
+	}
+	return r, g, b
+}
+
+func audioNoise(seed uint32) float64 {
+	step := float64((seed%17)+1) / 1000000
+	if seed%2 == 0 {
+		return step
+	}
+	return -step
 }
