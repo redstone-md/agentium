@@ -1,0 +1,81 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test-and-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Run Unit Tests
+        run: go test ./...
+
+      - name: Build Binary
+        run: go build -o agentium ./cmd/agentium
+
+      - name: Resolve Browser Binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          for bin in google-chrome chromium chromium-browser; do
+            if command -v "$bin" >/dev/null 2>&1; then
+              echo "AGENTIUM_CHROME_BIN=$(command -v "$bin")" >> "$GITHUB_ENV"
+              exit 0
+            fi
+          done
+          echo "No compatible browser binary found" >&2
+          exit 1
+
+      - name: Start HTTP Server Under Xvfb
+        shell: bash
+        run: |
+          set -euo pipefail
+          xvfb-run -a --server-args="-screen 0 1280x800x24" ./agentium -mode http >agentium-http.log 2>&1 &
+          echo $! > agentium-http.pid
+          sleep 5
+
+      - name: Run HTTP Smoke Test
+        shell: pwsh
+        run: ./scripts/smoke-http.ps1 -TargetUrl https://example.com
+
+      - name: Run MCP Stdio Smoke Test
+        shell: pwsh
+        run: ./scripts/smoke-mcp-stdio.ps1 -BinaryPath ./agentium
+
+      - name: Stop HTTP Server
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -f agentium-http.pid ]; then
+            kill "$(cat agentium-http.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload HTTP Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agentium-http-log
+          path: agentium-http.log
+
+  docker-build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image
+        run: docker build -t agentium:ci .

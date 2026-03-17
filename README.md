@@ -79,6 +79,18 @@ MCP stdio smoke test:
 pwsh ./scripts/smoke-mcp-stdio.ps1 -BinaryPath .\agentium.exe
 ```
 
+## CI
+
+GitHub Actions workflow is available at [`.github/workflows/ci.yml`](D:\code\Agentium\.github\workflows\ci.yml).
+
+It runs:
+
+- `go test ./...`
+- `go build ./...`
+- headful HTTP smoke test under `xvfb-run`
+- MCP stdio smoke test
+- `docker build`
+
 ## REST API
 
 Health check:
