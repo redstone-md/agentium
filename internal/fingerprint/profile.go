@@ -53,7 +53,7 @@ func NewResolver(geo geoResolver) *Resolver {
 	return &Resolver{geo: geo}
 }
 
-func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessionSeed string) (Profile, error) {
+func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessionSeed string, native NativeMetrics) (Profile, error) {
 	effectiveUA := strings.TrimSpace(options.UserAgent)
 	if effectiveUA == "" {
 		effectiveUA = strings.TrimSpace(browserUserAgent)
@@ -112,6 +112,10 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessi
 	profile.ColorDepth = template.ColorDepth
 	profile.PixelDepth = template.PixelDepth
 
+	if strings.TrimSpace(options.UserAgent) == "" {
+		applyNativeMetrics(&profile, native)
+	}
+
 	if geo.HasLocation() {
 		profile.Geolocation = &Geolocation{
 			Latitude:  geo.Latitude,
@@ -121,6 +125,42 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessi
 	}
 
 	return profile, nil
+}
+
+func applyNativeMetrics(profile *Profile, native NativeMetrics) {
+	if native.WebGLVendor != "" {
+		profile.WebGLVendor = native.WebGLVendor
+	}
+	if native.WebGLRenderer != "" {
+		profile.WebGLRenderer = native.WebGLRenderer
+	}
+	if native.ScreenWidth > 0 {
+		profile.ScreenWidth = native.ScreenWidth
+	}
+	if native.ScreenHeight > 0 {
+		profile.ScreenHeight = native.ScreenHeight
+	}
+	if native.AvailWidth > 0 {
+		profile.AvailWidth = native.AvailWidth
+	}
+	if native.AvailHeight > 0 {
+		profile.AvailHeight = native.AvailHeight
+	}
+	if native.DevicePixelRatio > 0 {
+		profile.DeviceScaleFactor = native.DevicePixelRatio
+	}
+	if native.ColorDepth > 0 {
+		profile.ColorDepth = native.ColorDepth
+	}
+	if native.PixelDepth > 0 {
+		profile.PixelDepth = native.PixelDepth
+	}
+	if native.AvailWidth > 0 {
+		profile.ViewportWidth = native.AvailWidth
+	}
+	if native.AvailHeight > 0 {
+		profile.ViewportHeight = native.AvailHeight
+	}
 }
 
 type uaProfile struct {

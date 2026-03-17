@@ -56,7 +56,7 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 		return nil, fmt.Errorf("create incognito context: %w", err)
 	}
 
-	page, err := stealth.Page(contextBrowser)
+	page, err := contextBrowser.Page(proto.TargetCreateTarget{})
 	if err != nil {
 		_ = contextBrowser.Close()
 		f.releaseRootBrowser(proxyKey)
@@ -73,7 +73,22 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 		return nil, fmt.Errorf("read browser version: %w", err)
 	}
 
-	profile, err := f.resolver.Resolve(options, browserVersion.UserAgent, id)
+	nativeMetrics, err := fingerprint.Probe(page)
+	if err != nil {
+		_ = page.Close()
+		_ = contextBrowser.Close()
+		f.releaseRootBrowser(proxyKey)
+		return nil, fmt.Errorf("probe native browser metrics: %w", err)
+	}
+
+	if _, err := page.EvalOnNewDocument(stealth.JS); err != nil {
+		_ = page.Close()
+		_ = contextBrowser.Close()
+		f.releaseRootBrowser(proxyKey)
+		return nil, fmt.Errorf("install base stealth script: %w", err)
+	}
+
+	profile, err := f.resolver.Resolve(options, browserVersion.UserAgent, id, nativeMetrics)
 	if err != nil {
 		_ = page.Close()
 		_ = contextBrowser.Close()
