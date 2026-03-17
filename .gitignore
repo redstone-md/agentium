@@ -1,0 +1,6 @@
+agentium.exe
+agentium
+dist/
+tmp/
+bin/
+*.log

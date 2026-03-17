@@ -1,0 +1,32 @@
+package validation
+
+import (
+	"testing"
+
+	"agentium/internal/model"
+)
+
+func TestValidateSessionOptionsRejectsBadProxy(t *testing.T) {
+	err := ValidateSessionOptions(model.SessionOptions{Proxy: "://bad-proxy"})
+	if err == nil {
+		t.Fatal("expected bad proxy to fail validation")
+	}
+}
+
+func TestValidateActionRequestRequiresRefIDForClick(t *testing.T) {
+	err := ValidateActionRequest(model.ActionRequest{Action: model.ActionClick})
+	if err == nil {
+		t.Fatal("expected click without ref_id to fail validation")
+	}
+}
+
+func TestValidateActionRequestAcceptsNavigate(t *testing.T) {
+	value := "https://example.com"
+	err := ValidateActionRequest(model.ActionRequest{
+		Action: model.ActionNavigate,
+		Value:  &value,
+	})
+	if err != nil {
+		t.Fatalf("expected navigate request to pass validation: %v", err)
+	}
+}
