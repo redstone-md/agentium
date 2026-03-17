@@ -7,6 +7,9 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/agentium ./cmd/agentium
 
+# Ubuntu 24.04 moves chromium-browser to a transitional package that installs the snap,
+# which is a poor fit for minimal container runtime images. Debian bookworm provides
+# a regular apt-installable chromium package, so the runtime stays headful/Xvfb-friendly.
 FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive

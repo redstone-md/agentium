@@ -47,6 +47,10 @@ Useful environment variables:
 
 ## Docker Run
 
+The runtime image is currently based on Debian bookworm, not Ubuntu.
+Reason: Ubuntu 24.04 ships `chromium-browser` as a transitional package to the Chromium snap,
+which is not suitable for this minimal Xvfb container layout.
+
 Build:
 
 ```bash
