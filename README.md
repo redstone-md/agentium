@@ -110,6 +110,18 @@ If the server is already running, use the dedicated assertion wrapper:
 pwsh ./scripts/smoke-stealth-sannysoft.ps1
 ```
 
+Stealth validation against `browserscan.net`:
+
+```powershell
+pwsh ./scripts/run-local-stealth-browserscan.ps1 -BinaryPath .\agentium.exe -DisableLeakless
+```
+
+If the server is already running, use:
+
+```powershell
+pwsh ./scripts/smoke-stealth-browserscan.ps1
+```
+
 ## CI
 
 GitHub Actions workflow is available at [`.github/workflows/ci.yml`](D:\code\Agentium\.github\workflows\ci.yml).
