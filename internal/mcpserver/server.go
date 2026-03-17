@@ -15,9 +15,9 @@ type Server struct {
 }
 
 type createSessionInput struct {
-	Proxy      string `json:"proxy" jsonschema:"Optional upstream proxy URL"`
-	TimezoneID string `json:"timezone_id" jsonschema:"Optional IANA timezone ID"`
-	UserAgent  string `json:"user_agent" jsonschema:"Optional browser user agent"`
+	Proxy      *string `json:"proxy,omitempty" jsonschema:"Optional upstream proxy URL"`
+	TimezoneID *string `json:"timezone_id,omitempty" jsonschema:"Optional IANA timezone ID"`
+	UserAgent  *string `json:"user_agent,omitempty" jsonschema:"Optional browser user agent"`
 }
 
 type sessionOutput struct {
@@ -49,6 +49,24 @@ func (s *Server) Build() *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "agentium_create_session",
 		Description: "Create a browser session with optional proxy, timezone, and user agent overrides.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"proxy": map[string]any{
+					"type":        "string",
+					"description": "Optional upstream proxy URL",
+				},
+				"timezone_id": map[string]any{
+					"type":        "string",
+					"description": "Optional IANA timezone ID",
+				},
+				"user_agent": map[string]any{
+					"type":        "string",
+					"description": "Optional browser user agent",
+				},
+			},
+			"additionalProperties": false,
+		},
 	}, s.createSession)
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -74,11 +92,18 @@ func (s *Server) RunStdio(ctx context.Context) error {
 }
 
 func (s *Server) createSession(ctx context.Context, _ *mcp.CallToolRequest, input createSessionInput) (*mcp.CallToolResult, sessionOutput, error) {
-	id, err := s.service.CreateSession(ctx, model.SessionOptions{
-		Proxy:      input.Proxy,
-		TimezoneID: input.TimezoneID,
-		UserAgent:  input.UserAgent,
-	})
+	options := model.SessionOptions{}
+	if input.Proxy != nil {
+		options.Proxy = *input.Proxy
+	}
+	if input.TimezoneID != nil {
+		options.TimezoneID = *input.TimezoneID
+	}
+	if input.UserAgent != nil {
+		options.UserAgent = *input.UserAgent
+	}
+
+	id, err := s.service.CreateSession(ctx, options)
 	if err != nil {
 		return nil, sessionOutput{}, err
 	}

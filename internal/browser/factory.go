@@ -185,7 +185,7 @@ func (f *Factory) closeIdleBrowser(proxyKey string, releasedAt time.Time) {
 
 func (f *Factory) launchRootBrowser(proxyURL string) (*rod.Browser, error) {
 	launch := launcher.New().
-		Leakless(true).
+		Leakless(f.config.UseLeakless).
 		Headless(false).
 		NoSandbox(true).
 		Set("disable-blink-features", "AutomationControlled")

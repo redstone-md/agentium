@@ -10,6 +10,7 @@ type Config struct {
 	ChromeBin     string
 	DefaultWidth  int
 	DefaultHeight int
+	UseLeakless   bool
 }
 
 func Load() Config {
@@ -18,6 +19,7 @@ func Load() Config {
 		ChromeBin:     os.Getenv("AGENTIUM_CHROME_BIN"),
 		DefaultWidth:  envInt("AGENTIUM_VIEWPORT_WIDTH", 1280),
 		DefaultHeight: envInt("AGENTIUM_VIEWPORT_HEIGHT", 800),
+		UseLeakless:   envBool("AGENTIUM_LEAKLESS", true),
 	}
 }
 
@@ -35,6 +37,20 @@ func envInt(key string, fallback int) int {
 	}
 
 	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
+}
+
+func envBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		return fallback
 	}

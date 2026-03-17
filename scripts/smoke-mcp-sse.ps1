@@ -1,8 +1,8 @@
-$ErrorActionPreference = "Stop"
-
 param(
   [string]$BaseUrl = "http://127.0.0.1:8080"
 )
+
+$ErrorActionPreference = "Stop"
 
 function Read-SseEvent {
   param(
@@ -38,6 +38,30 @@ function Read-SseEvent {
   }
 
   throw "Timed out waiting for SSE event"
+}
+
+function Wait-ForMatchingMessage {
+  param(
+    [System.IO.StreamReader]$Reader,
+    [string]$Pattern,
+    [int]$TimeoutSeconds = 10
+  )
+
+  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+  while ([DateTime]::UtcNow -lt $deadline) {
+    $eventLines = Read-SseEvent -Reader $Reader -TimeoutSeconds $TimeoutSeconds
+    $eventName = $eventLines | Where-Object { $_ -like "event:*" } | Select-Object -First 1
+    $dataLine = $eventLines | Where-Object { $_ -like "data:*" } | Select-Object -First 1
+    if ($eventName -ne "event: message" -or -not $dataLine) {
+      continue
+    }
+
+    if ($dataLine -match $Pattern) {
+      return $dataLine
+    }
+  }
+
+  throw "Timed out waiting for SSE message matching pattern: $Pattern"
 }
 
 function Post-JsonRpcMessage {
@@ -108,11 +132,7 @@ try {
     }
   }
 
-  $initializeResponse = Read-SseEvent -Reader $reader
-  $initData = $initializeResponse | Where-Object { $_ -like "data:*" } | Select-Object -First 1
-  if (-not $initData -or $initData -notmatch '"id":1') {
-    throw "Initialize response was not received over SSE"
-  }
+  $initData = Wait-ForMatchingMessage -Reader $reader -Pattern '"id":1'
 
   Post-JsonRpcMessage -Client $client -Url $messagesUrl -Payload @{
     jsonrpc = "2.0"
@@ -127,11 +147,7 @@ try {
     params = @{}
   }
 
-  $toolsResponse = Read-SseEvent -Reader $reader
-  $toolsData = $toolsResponse | Where-Object { $_ -like "data:*" } | Select-Object -First 1
-  if (-not $toolsData -or $toolsData -notmatch '"id":2') {
-    throw "tools/list response was not received over SSE"
-  }
+  $toolsData = Wait-ForMatchingMessage -Reader $reader -Pattern '"id":2'
 
   $jsonPayload = ($toolsData -replace "^data:\s*", "") | ConvertFrom-Json -Depth 20
   $toolNames = @($jsonPayload.result.tools | ForEach-Object { $_.name })

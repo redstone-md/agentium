@@ -44,6 +44,7 @@ Useful environment variables:
 - `AGENTIUM_CHROME_BIN` default: empty
 - `AGENTIUM_VIEWPORT_WIDTH` default: `1280`
 - `AGENTIUM_VIEWPORT_HEIGHT` default: `800`
+- `AGENTIUM_LEAKLESS` default: `true`
 
 ## Docker Run
 
@@ -83,6 +84,18 @@ MCP SSE smoke test:
 
 ```powershell
 pwsh ./scripts/smoke-mcp-sse.ps1
+```
+
+Local HTTP + SSE smoke run:
+
+```powershell
+pwsh ./scripts/run-local-http-smokes.ps1 -BinaryPath .\agentium.exe
+```
+
+If local Windows antivirus blocks Rod's `leakless` helper, run:
+
+```powershell
+pwsh ./scripts/run-local-http-smokes.ps1 -BinaryPath .\agentium.exe -DisableLeakless
 ```
 
 ## CI
