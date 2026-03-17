@@ -30,13 +30,28 @@ try {
   $process.StandardInput.Flush()
   Start-Sleep -Milliseconds 500
 
+  $fullOutput = New-Object System.Collections.Generic.List[string]
+
   while (-not $process.StandardOutput.EndOfStream) {
     $output = $process.StandardOutput.ReadLine()
     if ($output) {
+      $fullOutput.Add($output)
       Write-Host $output
     }
     if ($output -match '"id":2') {
       break
+    }
+  }
+
+  $joined = ($fullOutput -join "`n")
+  foreach ($toolName in @(
+    "agentium_create_session",
+    "agentium_get_snapshot",
+    "agentium_perform_action",
+    "agentium_close_session"
+  )) {
+    if ($joined -notmatch $toolName) {
+      throw "Expected MCP tool not found in tools/list response: $toolName"
     }
   }
 }

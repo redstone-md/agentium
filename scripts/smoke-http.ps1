@@ -5,8 +5,27 @@ param(
   [string]$TargetUrl = "https://example.com"
 )
 
+function Wait-ForHealth {
+  param(
+    [string]$Url,
+    [int]$Attempts = 30,
+    [int]$DelaySeconds = 1
+  )
+
+  for ($i = 0; $i -lt $Attempts; $i++) {
+    try {
+      return Invoke-RestMethod -Uri "$Url/healthz" -Method Get
+    }
+    catch {
+      Start-Sleep -Seconds $DelaySeconds
+    }
+  }
+
+  throw "Health endpoint did not become ready in time: $Url/healthz"
+}
+
 Write-Host "Health check..."
-$health = Invoke-RestMethod -Uri "$BaseUrl/healthz" -Method Get
+$health = Wait-ForHealth -Url $BaseUrl
 $health | ConvertTo-Json -Depth 5
 
 Write-Host "Creating session..."

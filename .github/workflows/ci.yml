@@ -25,6 +25,15 @@ jobs:
       - name: Build Binary
         run: go build -o agentium ./cmd/agentium
 
+      - name: Ensure Xvfb Is Available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v xvfb-run >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y xvfb
+          fi
+
       - name: Resolve Browser Binary
         shell: bash
         run: |
