@@ -61,6 +61,20 @@ docker run --rm -p 8080:8080 agentium:latest
 
 The container starts `Xvfb`, launches headful Chromium inside the virtual display, and serves HTTP on port `8080`.
 
+## Smoke Tests
+
+REST smoke test:
+
+```powershell
+pwsh ./scripts/smoke-http.ps1
+```
+
+MCP stdio smoke test:
+
+```powershell
+pwsh ./scripts/smoke-mcp-stdio.ps1 -BinaryPath .\agentium.exe
+```
+
 ## REST API
 
 Health check:
