@@ -2,6 +2,7 @@ package browser
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -14,7 +15,6 @@ import (
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
-	"github.com/go-rod/stealth"
 	"github.com/google/uuid"
 )
 
@@ -44,6 +44,14 @@ func NewFactory(cfg config.Config) *Factory {
 }
 
 func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error) {
+	if options.EffectiveSessionMode() == model.SessionModePersistent {
+		return f.createPersistent(options)
+	}
+
+	return f.createIncognito(options)
+}
+
+func (f *Factory) createIncognito(options model.SessionOptions) (*session.Runtime, error) {
 	proxyKey := normalizeProxyKey(options.Proxy)
 	rootBrowser, err := f.acquireRootBrowser(proxyKey, options.Proxy)
 	if err != nil {
@@ -81,13 +89,6 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 		return nil, fmt.Errorf("probe native browser metrics: %w", err)
 	}
 
-	if _, err := page.EvalOnNewDocument(stealth.JS); err != nil {
-		_ = page.Close()
-		_ = contextBrowser.Close()
-		f.releaseRootBrowser(proxyKey)
-		return nil, fmt.Errorf("install base stealth script: %w", err)
-	}
-
 	profile, err := f.resolver.Resolve(options, browserVersion.UserAgent, id, nativeMetrics)
 	if err != nil {
 		_ = page.Close()
@@ -96,42 +97,7 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 		return nil, fmt.Errorf("resolve browser profile: %w", err)
 	}
 
-	width := profile.ViewportWidth
-	height := profile.ViewportHeight
-	if width == 0 {
-		width = f.config.DefaultWidth
-	}
-	if height == 0 {
-		height = f.config.DefaultHeight
-	}
-	scaleFactor := profile.DeviceScaleFactor
-	if scaleFactor <= 0 {
-		scaleFactor = 1
-	}
-	screenWidth := profile.ScreenWidth
-	screenHeight := profile.ScreenHeight
-	if screenWidth == 0 {
-		screenWidth = width
-	}
-	if screenHeight == 0 {
-		screenHeight = height
-	}
-
-	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
-		Width:             width,
-		Height:            height,
-		DeviceScaleFactor: scaleFactor,
-		Mobile:            false,
-		ScreenWidth:       &screenWidth,
-		ScreenHeight:      &screenHeight,
-	}); err != nil {
-		_ = page.Close()
-		_ = contextBrowser.Close()
-		f.releaseRootBrowser(proxyKey)
-		return nil, fmt.Errorf("set viewport: %w", err)
-	}
-
-	if err := applyPageEmulation(page, profile); err != nil {
+	if err := configurePage(page, profile, f.config); err != nil {
 		_ = page.Close()
 		_ = contextBrowser.Close()
 		f.releaseRootBrowser(proxyKey)
@@ -153,6 +119,75 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 	return session.NewRuntime(id, options, rootBrowser, contextBrowser, page, tracker, closeFn), nil
 }
 
+func (f *Factory) createPersistent(options model.SessionOptions) (*session.Runtime, error) {
+	profileDir, err := os.MkdirTemp("", "agentium-profile-*")
+	if err != nil {
+		return nil, fmt.Errorf("create persistent profile dir: %w", err)
+	}
+
+	rootBrowser, err := f.launchRootBrowser(options.Proxy, profileDir)
+	if err != nil {
+		_ = removeProfileDir(profileDir)
+		return nil, err
+	}
+
+	page, err := rootBrowser.Page(proto.TargetCreateTarget{})
+	if err != nil {
+		_ = rootBrowser.Close()
+		_ = removeProfileDir(profileDir)
+		return nil, fmt.Errorf("create page: %w", err)
+	}
+
+	id := uuid.NewString()
+
+	browserVersion, err := rootBrowser.Version()
+	if err != nil {
+		_ = page.Close()
+		_ = rootBrowser.Close()
+		_ = removeProfileDir(profileDir)
+		return nil, fmt.Errorf("read browser version: %w", err)
+	}
+
+	nativeMetrics, err := fingerprint.Probe(page)
+	if err != nil {
+		_ = page.Close()
+		_ = rootBrowser.Close()
+		_ = removeProfileDir(profileDir)
+		return nil, fmt.Errorf("probe native browser metrics: %w", err)
+	}
+
+	profile, err := f.resolver.Resolve(options, browserVersion.UserAgent, id, nativeMetrics)
+	if err != nil {
+		_ = page.Close()
+		_ = rootBrowser.Close()
+		_ = removeProfileDir(profileDir)
+		return nil, fmt.Errorf("resolve browser profile: %w", err)
+	}
+
+	if err := configurePage(page, profile, f.config); err != nil {
+		_ = page.Close()
+		_ = rootBrowser.Close()
+		_ = removeProfileDir(profileDir)
+		return nil, err
+	}
+
+	restoreNetwork := page.EnableDomain(&proto.NetworkEnable{})
+
+	tracker := telemetry.NewTracker(100)
+	bindNetworkEvents(page, tracker)
+
+	closeFn := func() error {
+		restoreNetwork()
+		closeErr := closeSessionResources(page, rootBrowser)
+		if removeErr := removeProfileDir(profileDir); closeErr == nil && removeErr != nil {
+			return removeErr
+		}
+		return closeErr
+	}
+
+	return session.NewRuntime(id, options, rootBrowser, rootBrowser, page, tracker, closeFn), nil
+}
+
 func (f *Factory) acquireRootBrowser(proxyKey, proxyURL string) (*rod.Browser, error) {
 	f.mu.Lock()
 	if browser := f.browsers[proxyKey]; browser != nil {
@@ -164,7 +199,7 @@ func (f *Factory) acquireRootBrowser(proxyKey, proxyURL string) (*rod.Browser, e
 	}
 	f.mu.Unlock()
 
-	rootBrowser, err := f.launchRootBrowser(proxyURL)
+	rootBrowser, err := f.launchRootBrowser(proxyURL, "")
 	if err != nil {
 		return nil, err
 	}
@@ -241,19 +276,23 @@ func (f *Factory) closeIdleBrowser(proxyKey string, releasedAt time.Time) {
 	delete(f.browsers, proxyKey)
 }
 
-func (f *Factory) launchRootBrowser(proxyURL string) (*rod.Browser, error) {
+func (f *Factory) launchRootBrowser(proxyURL, userDataDir string) (*rod.Browser, error) {
 	launch := launcher.New().
 		Leakless(f.config.UseLeakless).
 		Headless(false).
 		NoSandbox(true).
 		Set("disable-blink-features", "AutomationControlled")
 
-	if f.config.ChromeBin != "" {
-		launch = launch.Bin(f.config.ChromeBin)
+	if chromeBin := resolveChromeBinary(f.config.ChromeBin); chromeBin != "" {
+		launch = launch.Bin(chromeBin)
 	}
 
 	if proxyURL != "" {
 		launch = launch.Proxy(proxyURL)
+	}
+
+	if strings.TrimSpace(userDataDir) != "" {
+		launch = launch.UserDataDir(userDataDir)
 	}
 
 	controlURL, err := launch.Launch()
@@ -267,6 +306,46 @@ func (f *Factory) launchRootBrowser(proxyURL string) (*rod.Browser, error) {
 	}
 
 	return rootBrowser, nil
+}
+
+func configurePage(page *rod.Page, profile fingerprint.Profile, cfg config.Config) error {
+	width := profile.ViewportWidth
+	height := profile.ViewportHeight
+	if width == 0 {
+		width = cfg.DefaultWidth
+	}
+	if height == 0 {
+		height = cfg.DefaultHeight
+	}
+	scaleFactor := profile.DeviceScaleFactor
+	if scaleFactor <= 0 {
+		scaleFactor = 1
+	}
+	screenWidth := profile.ScreenWidth
+	screenHeight := profile.ScreenHeight
+	if screenWidth == 0 {
+		screenWidth = width
+	}
+	if screenHeight == 0 {
+		screenHeight = height
+	}
+
+	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
+		Width:             width,
+		Height:            height,
+		DeviceScaleFactor: scaleFactor,
+		Mobile:            false,
+		ScreenWidth:       &screenWidth,
+		ScreenHeight:      &screenHeight,
+	}); err != nil {
+		return fmt.Errorf("set viewport: %w", err)
+	}
+
+	if err := applyPageEmulation(page, profile); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func applyPageEmulation(page *rod.Page, profile fingerprint.Profile) error {
@@ -287,6 +366,12 @@ func applyPageEmulation(page *rod.Page, profile fingerprint.Profile) error {
 			UserAgentMetadata: profile.UserAgentMetadata,
 		}).Call(page); err != nil {
 			return fmt.Errorf("set emulated user agent: %w", err)
+		}
+	}
+
+	if extraHeaders := buildExtraHeaders(profile); len(extraHeaders) > 0 {
+		if _, err := page.SetExtraHeaders(extraHeaders); err != nil {
+			return fmt.Errorf("set extra http headers: %w", err)
 		}
 	}
 
@@ -346,6 +431,81 @@ func normalizeProxyKey(proxyURL string) string {
 		return "direct"
 	}
 	return proxyURL
+}
+
+func buildExtraHeaders(profile fingerprint.Profile) []string {
+	headers := []string{}
+	appendHeader := func(key, value string) {
+		if strings.TrimSpace(value) == "" {
+			return
+		}
+		headers = append(headers, key, value)
+	}
+
+	appendHeader("Accept-Language", acceptLanguageHeaderValue(profile))
+
+	if profile.UserAgentMetadata == nil {
+		return headers
+	}
+
+	appendHeader("Sec-CH-UA", formatBrands(profile.UserAgentMetadata.Brands))
+	appendHeader("Sec-CH-UA-Mobile", boolClientHint(profile.UserAgentMetadata.Mobile))
+	appendHeader("Sec-CH-UA-Platform", quotedClientHint(profile.UserAgentMetadata.Platform))
+	appendHeader("Sec-CH-UA-Platform-Version", quotedClientHint(profile.UserAgentMetadata.PlatformVersion))
+	appendHeader("Sec-CH-UA-Arch", quotedClientHint(profile.UserAgentMetadata.Architecture))
+	appendHeader("Sec-CH-UA-Bitness", quotedClientHint(profile.UserAgentMetadata.Bitness))
+	appendHeader("Sec-CH-UA-Model", quotedClientHint(profile.UserAgentMetadata.Model))
+	appendHeader("Sec-CH-UA-Full-Version", quotedClientHint(profile.UserAgentMetadata.FullVersion))
+	appendHeader("Sec-CH-UA-Full-Version-List", formatBrands(profile.UserAgentMetadata.FullVersionList))
+
+	return headers
+}
+
+func acceptLanguageHeaderValue(profile fingerprint.Profile) string {
+	if len(profile.Languages) == 0 {
+		return strings.TrimSpace(profile.AcceptLanguage)
+	}
+
+	parts := make([]string, 0, len(profile.Languages))
+	for index, language := range profile.Languages {
+		language = strings.TrimSpace(language)
+		if language == "" {
+			continue
+		}
+		if index == 0 {
+			parts = append(parts, language)
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s;q=0.%d", language, 10-index))
+	}
+
+	return strings.Join(parts, ",")
+}
+
+func formatBrands(brands []*proto.EmulationUserAgentBrandVersion) string {
+	parts := make([]string, 0, len(brands))
+	for _, brand := range brands {
+		if brand == nil || strings.TrimSpace(brand.Brand) == "" || strings.TrimSpace(brand.Version) == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf(`"%s";v="%s"`, brand.Brand, brand.Version))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func quotedClientHint(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return fmt.Sprintf(`"%s"`, value)
+}
+
+func boolClientHint(value bool) string {
+	if value {
+		return "?1"
+	}
+	return "?0"
 }
 
 func closeSessionResources(page *rod.Page, contextBrowser *rod.Browser) error {

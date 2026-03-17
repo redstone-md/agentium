@@ -11,31 +11,41 @@ import (
 
 func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 	payload, err := json.Marshal(map[string]any{
-		"userAgent":           profile.UserAgent,
-		"platform":            profile.Platform,
-		"vendor":              profile.Vendor,
-		"webglVendor":         profile.WebGLVendor,
-		"webglRenderer":       profile.WebGLRenderer,
-		"fingerprintSeed":     profile.FingerprintSeed,
-		"canvasNoiseR":        profile.CanvasNoiseR,
-		"canvasNoiseG":        profile.CanvasNoiseG,
-		"canvasNoiseB":        profile.CanvasNoiseB,
-		"audioNoise":          profile.AudioNoise,
-		"viewportWidth":       profile.ViewportWidth,
-		"viewportHeight":      profile.ViewportHeight,
-		"screenWidth":         profile.ScreenWidth,
-		"screenHeight":        profile.ScreenHeight,
-		"availWidth":          profile.AvailWidth,
-		"availHeight":         profile.AvailHeight,
-		"deviceScaleFactor":   profile.DeviceScaleFactor,
-		"colorDepth":          profile.ColorDepth,
-		"pixelDepth":          profile.PixelDepth,
-		"languages":           profile.Languages,
-		"language":            firstLanguage(profile.Languages),
-		"hardwareConcurrency": profile.HardwareConcurrency,
-		"deviceMemory":        profile.DeviceMemory,
-		"maxTouchPoints":      profile.MaxTouchPoints,
-		"userAgentData":       buildUserAgentData(profile),
+		"userAgent":               profile.UserAgent,
+		"platform":                profile.Platform,
+		"vendor":                  profile.Vendor,
+		"webglVendor":             profile.WebGLVendor,
+		"webglRenderer":           profile.WebGLRenderer,
+		"preserveNativeNavigator": profile.PreserveNativeNavigator,
+		"preserveNativeScreen":    profile.PreserveNativeScreen,
+		"preserveNativeGraphics":  profile.PreserveNativeGraphics,
+		"preserveNativeMedia":     profile.PreserveNativeMedia,
+		"fingerprintSeed":         profile.FingerprintSeed,
+		"canvasNoiseR":            profile.CanvasNoiseR,
+		"canvasNoiseG":            profile.CanvasNoiseG,
+		"canvasNoiseB":            profile.CanvasNoiseB,
+		"audioNoise":              profile.AudioNoise,
+		"viewportWidth":           profile.ViewportWidth,
+		"viewportHeight":          profile.ViewportHeight,
+		"outerWidth":              profile.OuterWidth,
+		"outerHeight":             profile.OuterHeight,
+		"windowScreenX":           profile.WindowScreenX,
+		"windowScreenY":           profile.WindowScreenY,
+		"screenWidth":             profile.ScreenWidth,
+		"screenHeight":            profile.ScreenHeight,
+		"availWidth":              profile.AvailWidth,
+		"availHeight":             profile.AvailHeight,
+		"deviceScaleFactor":       profile.DeviceScaleFactor,
+		"colorDepth":              profile.ColorDepth,
+		"pixelDepth":              profile.PixelDepth,
+		"languages":               profile.Languages,
+		"language":                firstLanguage(profile.Languages),
+		"hardwareConcurrency":     profile.HardwareConcurrency,
+		"deviceMemory":            profile.DeviceMemory,
+		"maxTouchPoints":          profile.MaxTouchPoints,
+		"speechVoices":            profile.SpeechVoices,
+		"chromeKeys":              profile.ChromeKeys,
+		"userAgentData":           buildUserAgentData(profile),
 	})
 	if err != nil {
 		return fmt.Errorf("marshal stealth profile: %w", err)
@@ -44,8 +54,22 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 	script := fmt.Sprintf(`(() => {
 		const profile = %s;
 		const appVersion = profile.userAgent.startsWith('Mozilla/') ? profile.userAgent.slice('Mozilla/'.length) : profile.userAgent;
+		const markNativeSource = (fn, source) => {
+			return fn;
+		};
+		const markNative = (fn, name) => {
+			return fn;
+		};
+		const createNativeGetter = (key, value) => {
+			return function() {
+				return value;
+			};
+		};
+		const defineValue = (target, key, value) => {
+			Object.defineProperty(target, key, { value, configurable: true, writable: true });
+		};
 		const define = (target, key, value) => {
-			Object.defineProperty(target, key, { get: () => value, configurable: true });
+			Object.defineProperty(target, key, { get: createNativeGetter(key, value), configurable: true });
 		};
 		const overrideNavigatorValue = (navigatorObject, key, value) => {
 			if (!navigatorObject) {
@@ -73,7 +97,11 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 				try {
 					delete proto.webdriver;
 				} catch (_) {}
+				if (!('webdriver' in navigatorObject) && !('webdriver' in proto)) {
+					return;
+				}
 			}
+			define(navigatorObject, 'webdriver', false);
 		};
 		const createUserAgentData = (data) => {
 			const lowEntropy = {
@@ -107,68 +135,26 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 			};
 		};
 		const navigatorValues = () => ({
-			appCodeName: 'Mozilla',
-			appName: 'Netscape',
 			appVersion,
 			deviceMemory: profile.deviceMemory,
 			hardwareConcurrency: profile.hardwareConcurrency,
 			language: profile.language,
 			languages: profile.languages,
 			maxTouchPoints: profile.maxTouchPoints,
-			onLine: true,
-			pdfViewerEnabled: true,
 			platform: profile.platform,
-			product: 'Gecko',
-			productSub: '20030107',
 			userAgent: profile.userAgent,
 			userAgentData: createUserAgentData(profile.userAgentData),
 			vendor: profile.vendor,
-			vendorSub: ''
 		});
 		const applyNavigatorProfile = (navigatorObject) => {
+			if (profile.preserveNativeNavigator) {
+				removeWebdriver(navigatorObject);
+				return;
+			}
 			for (const [key, value] of Object.entries(navigatorValues())) {
 				overrideNavigatorValue(navigatorObject, key, value);
 			}
 			removeWebdriver(navigatorObject);
-		};
-		const patchWorkers = () => {
-			const buildWorkerBootstrap = (scriptURL, isModule) => {
-				const importLine = isModule ? 'import ' + scriptURL + ';' : 'importScripts(' + scriptURL + ');';
-				return [
-					'(() => {',
-					'const profile = ' + JSON.stringify(profile) + ';',
-					"const appVersion = profile.userAgent.startsWith('Mozilla/') ? profile.userAgent.slice('Mozilla/'.length) : profile.userAgent;",
-					"const define = (target, key, value) => Object.defineProperty(target, key, { get: () => value, configurable: true });",
-					"const overrideNavigatorValue = (navigatorObject, key, value) => { if (!navigatorObject) return; const proto = Object.getPrototypeOf(navigatorObject); const descriptor = Object.getOwnPropertyDescriptor(proto, key); if (!descriptor || descriptor.configurable) { define(proto, key, value); return; } define(navigatorObject, key, value); };",
-					'const createUserAgentData = ' + createUserAgentData.toString() + ';',
-					"const values = { appCodeName: 'Mozilla', appName: 'Netscape', appVersion, deviceMemory: profile.deviceMemory, hardwareConcurrency: profile.hardwareConcurrency, language: profile.language, languages: profile.languages, maxTouchPoints: profile.maxTouchPoints, onLine: true, pdfViewerEnabled: true, platform: profile.platform, product: 'Gecko', productSub: '20030107', userAgent: profile.userAgent, userAgentData: createUserAgentData(profile.userAgentData), vendor: profile.vendor, vendorSub: '' };",
-					"for (const [key, value] of Object.entries(values)) { overrideNavigatorValue(self.navigator, key, value); }",
-					"try { delete self.navigator.webdriver; } catch (_) {}",
-					'})();',
-					importLine,
-				].join('\n');
-			};
-			const patchWorkerConstructor = (key) => {
-				const NativeWorker = window[key];
-				if (typeof NativeWorker !== 'function') {
-					return;
-				}
-				const WrappedWorker = function(scriptURL, options) {
-					try {
-						const isModule = !!options && typeof options === 'object' && options.type === 'module';
-						const resolvedURL = new URL(scriptURL, location.href).href;
-						const wrappedURL = URL.createObjectURL(new Blob([buildWorkerBootstrap(JSON.stringify(resolvedURL), isModule)], { type: 'application/javascript' }));
-						setTimeout(() => URL.revokeObjectURL(wrappedURL), 30000);
-						return new NativeWorker(wrappedURL, options);
-					} catch (_) {
-						return new NativeWorker(scriptURL, options);
-					}
-				};
-				WrappedWorker.prototype = NativeWorker.prototype;
-				Object.defineProperty(window, key, { value: WrappedWorker, configurable: true });
-			};
-			patchWorkerConstructor('Worker');
-			patchWorkerConstructor('SharedWorker');
 		};
 		const patchWebRTC = () => {
 			const NativePeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection;
@@ -223,14 +209,117 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 			window.RTCPeerConnection = WrappedPeerConnection;
 			window.webkitRTCPeerConnection = WrappedPeerConnection;
 		};
+		const patchChromeObject = () => {
+			const ensureChromeRoot = () => {
+				if (window.chrome && typeof window.chrome === 'object') {
+					return window.chrome;
+				}
+				const chromeObject = {};
+				try {
+					Object.defineProperty(window, 'chrome', {
+						value: chromeObject,
+						writable: true,
+						enumerable: true,
+						configurable: false
+					});
+					return chromeObject;
+				} catch (_) {
+					return window.chrome || chromeObject;
+				}
+			};
+			const chromeObject = ensureChromeRoot();
+			if (!chromeObject || typeof chromeObject !== 'object') {
+				return;
+			}
+			if (!('app' in chromeObject)) {
+				try {
+					const installState = {
+						DISABLED: 'disabled',
+						INSTALLED: 'installed',
+						NOT_INSTALLED: 'not_installed'
+					};
+					const runningState = {
+						CANNOT_RUN: 'cannot_run',
+						READY_TO_RUN: 'ready_to_run',
+						RUNNING: 'running'
+					};
+					defineValue(chromeObject, 'app', {
+						InstallState: installState,
+						RunningState: runningState,
+						get isInstalled() {
+							return false;
+						},
+						getDetails() {
+							if (arguments.length) {
+								throw new TypeError('Error in invocation of app.getDetails()');
+							}
+							return null;
+						},
+						getIsInstalled() {
+							if (arguments.length) {
+								throw new TypeError('Error in invocation of app.getIsInstalled()');
+							}
+							return false;
+						},
+						runningState() {
+							if (arguments.length) {
+								throw new TypeError('Error in invocation of app.runningState()');
+							}
+							return 'cannot_run';
+						}
+					});
+				} catch (_) {}
+			}
+			if (profile.preserveNativeNavigator) {
+				return;
+			}
+			const allowedKeys = new Set((profile.chromeKeys || []).length ? profile.chromeKeys : ['loadTimes', 'csi', 'app']);
+			for (const key of Object.getOwnPropertyNames(chromeObject)) {
+				if (allowedKeys.has(key)) {
+					continue;
+				}
+				try {
+					delete chromeObject[key];
+				} catch (_) {}
+			}
+			for (const key of ['loadTimes', 'csi', 'app']) {
+				if (allowedKeys.has(key) && !(key in chromeObject)) {
+					try {
+						Object.defineProperty(chromeObject, key, {
+							value: typeof chromeObject[key] === 'function' ? chromeObject[key] : (key === 'app' ? {} : markNative(function() {}, key)),
+							configurable: true
+						});
+					} catch (_) {}
+				}
+			}
+		};
+		const patchWindowMetrics = () => {
+			const desiredOuterWidth = profile.outerWidth || profile.viewportWidth || window.innerWidth || 0;
+			const desiredOuterHeight = profile.outerHeight || profile.viewportHeight || window.innerHeight || 0;
+			const desiredScreenX = typeof profile.windowScreenX === 'number' ? profile.windowScreenX : (window.screenX || window.screenLeft || 0);
+			const desiredScreenY = typeof profile.windowScreenY === 'number' ? profile.windowScreenY : (window.screenY || window.screenTop || 0);
+			if (desiredOuterWidth > 0) {
+				define(window, 'outerWidth', desiredOuterWidth);
+			}
+			if (desiredOuterHeight > 0) {
+				define(window, 'outerHeight', desiredOuterHeight);
+			}
+			define(window, 'screenX', desiredScreenX);
+			define(window, 'screenY', desiredScreenY);
+			define(window, 'screenLeft', desiredScreenX);
+			define(window, 'screenTop', desiredScreenY);
+		};
 		const patchWebGL = () => {
+			if (profile.preserveNativeGraphics) {
+				return;
+			}
 			const patchContext = (ctor) => {
 				if (!ctor || !ctor.prototype || typeof ctor.prototype.getParameter !== 'function') {
 					return;
 				}
 				const nativeGetParameter = ctor.prototype.getParameter;
 				Object.defineProperty(ctor.prototype, 'getParameter', {
-					value: function(parameter) {
+					value: markNative(function getParameter(parameter) {
 						if (parameter === 37445) {
 							return profile.webglVendor;
 						}
@@ -238,13 +327,13 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 							return profile.webglRenderer;
 						}
 						return nativeGetParameter.apply(this, arguments);
-					},
+					}, 'getParameter'),
 					configurable: true
 				});
 				const nativeReadPixels = ctor.prototype.readPixels;
 				if (typeof nativeReadPixels === 'function') {
 					Object.defineProperty(ctor.prototype, 'readPixels', {
-						value: function() {
+						value: markNative(function readPixels() {
 							const output = nativeReadPixels.apply(this, arguments);
 							const pixels = arguments[6];
 							if (pixels && typeof pixels.length === 'number' && pixels.length > 4) {
@@ -254,7 +343,7 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 								pixels[pixelIndex + 2] = Math.max(0, Math.min(255, pixels[pixelIndex + 2] + profile.canvasNoiseB));
 							}
 							return output;
-						},
+						}, 'readPixels'),
 						configurable: true
 					});
 				}
@@ -263,13 +352,16 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 			patchContext(window.WebGL2RenderingContext);
 		};
 		const patchScreen = () => {
+			if (profile.preserveNativeScreen) {
+				return;
+			}
 			const overrideScreenValue = (key, value) => {
 				try {
-					Object.defineProperty(window.screen, key, { get: () => value, configurable: true });
+					Object.defineProperty(window.screen, key, { get: createNativeGetter(key, value), configurable: true });
 				} catch (_) {}
 				try {
 					const screenProto = Object.getPrototypeOf(window.screen);
-					Object.defineProperty(screenProto, key, { get: () => value, configurable: true });
+					Object.defineProperty(screenProto, key, { get: createNativeGetter(key, value), configurable: true });
 				} catch (_) {}
 			};
 			overrideScreenValue('width', profile.screenWidth);
@@ -278,13 +370,103 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 			overrideScreenValue('availHeight', profile.availHeight);
 			overrideScreenValue('colorDepth', profile.colorDepth);
 			overrideScreenValue('pixelDepth', profile.pixelDepth);
-			define(window, 'innerWidth', profile.viewportWidth || profile.screenWidth);
-			define(window, 'innerHeight', profile.viewportHeight || profile.availHeight);
-			define(window, 'outerWidth', profile.viewportWidth || profile.screenWidth);
-			define(window, 'outerHeight', profile.viewportHeight || profile.availHeight);
-			define(window, 'devicePixelRatio', profile.deviceScaleFactor);
+		};
+		const patchIframes = () => {
+			if (!document || typeof document.createElement !== 'function') {
+				return;
+			}
+			const patchedIframes = new WeakSet();
+			const addContentWindowProxy = (iframe) => {
+				if (!iframe || patchedIframes.has(iframe)) {
+					return;
+				}
+				if (iframe.contentWindow) {
+					patchedIframes.add(iframe);
+					return;
+				}
+				try {
+					const proxy = new Proxy(window, {
+						get(target, key) {
+							if (key === 'self') {
+								return proxy;
+							}
+							if (key === 'frameElement') {
+								return iframe;
+							}
+							if (key === '0') {
+								return undefined;
+							}
+							return Reflect.get(target, key);
+						}
+					});
+					Object.defineProperty(iframe, 'contentWindow', {
+						get() {
+							return proxy;
+						},
+						set(value) {
+							return value;
+						},
+						enumerable: true,
+						configurable: false
+					});
+				} catch (_) {}
+				patchedIframes.add(iframe);
+			};
+			const nativeCreateElement = document.createElement;
+			const wrappedCreateElement = new Proxy(nativeCreateElement, {
+				apply(target, thisArg, args) {
+					const element = Reflect.apply(target, thisArg, args);
+					const tagName = String((args && args[0]) || '').toLowerCase();
+					if (tagName !== 'iframe' || !element) {
+						return element;
+					}
+					const iframe = element;
+					addContentWindowProxy(iframe);
+					const nativeSetAttribute = iframe.setAttribute ? iframe.setAttribute.bind(iframe) : null;
+					const originalSrcdoc = iframe.srcdoc;
+					try {
+						Object.defineProperty(iframe, 'srcdoc', {
+							configurable: true,
+							get() {
+								return originalSrcdoc;
+							},
+							set(value) {
+								addContentWindowProxy(iframe);
+								try {
+									Object.defineProperty(iframe, 'srcdoc', {
+										configurable: false,
+										writable: true,
+										value: originalSrcdoc
+									});
+								} catch (_) {}
+								iframe.srcdoc = value;
+							}
+						});
+					} catch (_) {}
+					if (nativeSetAttribute) {
+						iframe.setAttribute = new Proxy(nativeSetAttribute, {
+							apply(targetSetAttribute, thisArgSetAttribute, setArgs) {
+								if (setArgs && String(setArgs[0] || '').toLowerCase() === 'srcdoc') {
+									addContentWindowProxy(iframe);
+								}
+								return Reflect.apply(targetSetAttribute, thisArgSetAttribute, setArgs);
+							}
+						});
+					}
+					return iframe;
+				}
+			});
+			try {
+				Object.defineProperty(document, 'createElement', {
+					value: wrappedCreateElement,
+					configurable: true
+				});
+			} catch (_) {}
 		};
 		const patchCanvas = () => {
+			if (profile.preserveNativeMedia) {
+				return;
+			}
 			const patchedImageData = new WeakSet();
 			const applyNoiseToImageData = (imageData) => {
 				if (!imageData || !imageData.data || imageData.data.length < 4 || patchedImageData.has(imageData)) {
@@ -307,9 +489,9 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 				const nativeGetImageData = ctor.prototype.getImageData;
 				if (typeof nativeGetImageData === 'function') {
 					Object.defineProperty(ctor.prototype, 'getImageData', {
-						value: function() {
+						value: markNative(function getImageData() {
 							return applyNoiseToImageData(nativeGetImageData.apply(this, arguments));
-						},
+						}, 'getImageData'),
 						configurable: true
 					});
 				}
@@ -325,7 +507,7 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 				const nativeToDataURL = ctor.prototype.toDataURL;
 				if (typeof nativeToDataURL === 'function') {
 					Object.defineProperty(ctor.prototype, 'toDataURL', {
-						value: function() {
+						value: markNative(function toDataURL() {
 							try {
 								const width = Math.max(1, this.width || 1);
 								const height = Math.max(1, this.height || 1);
@@ -341,7 +523,7 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 								}
 							} catch (_) {}
 							return nativeToDataURL.apply(this, arguments);
-						},
+						}, 'toDataURL'),
 						configurable: true
 					});
 				}
@@ -352,6 +534,9 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 			}
 		};
 		const patchAudio = () => {
+			if (profile.preserveNativeMedia) {
+				return;
+			}
 			const patchedChannels = new WeakSet();
 			const patchChannel = (channel) => {
 				if (!channel || !channel.length || patchedChannels.has(channel)) {
@@ -365,22 +550,22 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 			const nativeGetChannelData = window.AudioBuffer && window.AudioBuffer.prototype.getChannelData;
 			if (typeof nativeGetChannelData === 'function') {
 				Object.defineProperty(window.AudioBuffer.prototype, 'getChannelData', {
-					value: function() {
+					value: markNative(function getChannelData() {
 						return patchChannel(nativeGetChannelData.apply(this, arguments));
-					},
+					}, 'getChannelData'),
 					configurable: true
 				});
 			}
 			const nativeCopyFromChannel = window.AudioBuffer && window.AudioBuffer.prototype.copyFromChannel;
 			if (typeof nativeCopyFromChannel === 'function') {
 				Object.defineProperty(window.AudioBuffer.prototype, 'copyFromChannel', {
-					value: function(destination) {
+					value: markNative(function copyFromChannel(destination) {
 						const output = nativeCopyFromChannel.apply(this, arguments);
 						if (destination && destination.length) {
 							patchChannel(destination);
 						}
 						return output;
-					},
+					}, 'copyFromChannel'),
 					configurable: true
 				});
 			}
@@ -401,26 +586,87 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 				}
 				const nativeStartRendering = ctor.prototype.startRendering;
 				Object.defineProperty(ctor.prototype, 'startRendering', {
-					value: function() {
+					value: markNative(function startRendering() {
 						const rendered = nativeStartRendering.apply(this, arguments);
 						if (rendered && typeof rendered.then === 'function') {
 							return rendered.then((buffer) => patchRenderedBuffer(buffer));
 						}
 						return patchRenderedBuffer(rendered);
-					},
+					}, 'startRendering'),
 					configurable: true
 				});
 			};
 			patchOfflineContext(window.OfflineAudioContext);
 			patchOfflineContext(window.webkitOfflineAudioContext);
 		};
+		const patchSpeechSynthesis = () => {
+			if (profile.preserveNativeNavigator || profile.preserveNativeMedia) {
+				return;
+			}
+			if (!window.speechSynthesis || typeof window.speechSynthesis.getVoices !== 'function') {
+				return;
+			}
+			const nativeGetVoices = window.speechSynthesis.getVoices.bind(window.speechSynthesis);
+			const languagePrefixes = (profile.languages || [])
+				.map((language) => String(language || '').toLowerCase())
+				.filter(Boolean)
+				.map((language) => language.split('-')[0]);
+			const cloneVoices = () => (profile.speechVoices || []).map((voice) => ({
+				default: !!voice.default,
+				lang: voice.lang || profile.language,
+				localService: voice.localService !== false,
+				name: voice.name || '',
+				voiceURI: voice.voiceURI || voice.name || ''
+			}));
+			const needsVoiceFallback = (voices) => {
+				if (!Array.isArray(voices) || voices.length === 0) {
+					return true;
+				}
+				return !voices.some((voice) => {
+					const lang = String(voice && voice.lang || '').toLowerCase();
+					if (!lang) {
+						return false;
+					}
+					if ((profile.languages || []).some((language) => language.toLowerCase() === lang)) {
+						return true;
+					}
+					return languagePrefixes.some((prefix) => prefix && lang.startsWith(prefix));
+				});
+			};
+			let syntheticVoices = null;
+			const wrappedGetVoices = markNative(function getVoices() {
+				const nativeVoices = nativeGetVoices();
+				if (!needsVoiceFallback(nativeVoices)) {
+					return nativeVoices;
+				}
+				if (!syntheticVoices) {
+					syntheticVoices = cloneVoices();
+				}
+				return syntheticVoices;
+			}, 'getVoices');
+			Object.defineProperty(window.speechSynthesis, 'getVoices', {
+				value: wrappedGetVoices,
+				configurable: true
+			});
+			try {
+				queueMicrotask(() => {
+					const handler = window.speechSynthesis.onvoiceschanged;
+					if (typeof handler === 'function') {
+						handler.call(window.speechSynthesis, new Event('voiceschanged'));
+					}
+				});
+			} catch (_) {}
+		};
 		applyNavigatorProfile(navigator);
-		patchWorkers();
+		patchChromeObject();
+		patchWindowMetrics();
 		patchWebRTC();
 		patchWebGL();
 		patchScreen();
 		patchCanvas();
 		patchAudio();
+		patchSpeechSynthesis();
+		patchIframes();
 	})();`, payload)
 
 	if _, err := (proto.PageAddScriptToEvaluateOnNewDocument{
@@ -431,51 +677,4 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 	}
 
 	return nil
-}
-
-func buildUserAgentData(profile fingerprint.Profile) map[string]any {
-	if profile.UserAgentMetadata == nil {
-		return map[string]any{}
-	}
-
-	brands := make([]map[string]string, 0, len(profile.UserAgentMetadata.Brands))
-	for _, brand := range profile.UserAgentMetadata.Brands {
-		if brand == nil {
-			continue
-		}
-		brands = append(brands, map[string]string{
-			"brand":   brand.Brand,
-			"version": brand.Version,
-		})
-	}
-
-	fullVersionList := make([]map[string]string, 0, len(profile.UserAgentMetadata.FullVersionList))
-	for _, brand := range profile.UserAgentMetadata.FullVersionList {
-		if brand == nil {
-			continue
-		}
-		fullVersionList = append(fullVersionList, map[string]string{
-			"brand":   brand.Brand,
-			"version": brand.Version,
-		})
-	}
-
-	return map[string]any{
-		"brands":          brands,
-		"mobile":          profile.UserAgentMetadata.Mobile,
-		"platform":        profile.UserAgentMetadata.Platform,
-		"architecture":    profile.UserAgentMetadata.Architecture,
-		"bitness":         profile.UserAgentMetadata.Bitness,
-		"model":           profile.UserAgentMetadata.Model,
-		"platformVersion": profile.UserAgentMetadata.PlatformVersion,
-		"uaFullVersion":   profile.UserAgentMetadata.FullVersion,
-		"fullVersionList": fullVersionList,
-	}
-}
-
-func firstLanguage(languages []string) string {
-	if len(languages) == 0 {
-		return "en-US"
-	}
-	return languages[0]
 }

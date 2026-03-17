@@ -15,10 +15,11 @@ type Server struct {
 }
 
 type createSessionInput struct {
-	Proxy      *string `json:"proxy,omitempty" jsonschema:"Optional upstream proxy URL"`
-	TimezoneID *string `json:"timezone_id,omitempty" jsonschema:"Optional IANA timezone ID"`
-	UserAgent  *string `json:"user_agent,omitempty" jsonschema:"Optional browser user agent"`
-	ProfileID  *string `json:"profile_id,omitempty" jsonschema:"Optional stable fingerprint profile identifier"`
+	Proxy       *string            `json:"proxy,omitempty" jsonschema:"Optional upstream proxy URL"`
+	TimezoneID  *string            `json:"timezone_id,omitempty" jsonschema:"Optional IANA timezone ID"`
+	UserAgent   *string            `json:"user_agent,omitempty" jsonschema:"Optional browser user agent"`
+	ProfileID   *string            `json:"profile_id,omitempty" jsonschema:"Optional stable fingerprint profile identifier"`
+	SessionMode *model.SessionMode `json:"session_mode,omitempty" jsonschema:"Optional session isolation mode: incognito or persistent"`
 }
 
 type sessionOutput struct {
@@ -69,6 +70,11 @@ func (s *Server) Build() *mcp.Server {
 					"type":        "string",
 					"description": "Optional stable fingerprint profile identifier",
 				},
+				"session_mode": map[string]any{
+					"type":        "string",
+					"description": "Optional session isolation mode: incognito or persistent",
+					"enum":        []string{string(model.SessionModeIncognito), string(model.SessionModePersistent)},
+				},
 			},
 			"additionalProperties": false,
 		},
@@ -109,6 +115,9 @@ func (s *Server) createSession(ctx context.Context, _ *mcp.CallToolRequest, inpu
 	}
 	if input.ProfileID != nil {
 		options.ProfileID = *input.ProfileID
+	}
+	if input.SessionMode != nil {
+		options.SessionMode = *input.SessionMode
 	}
 
 	id, err := s.service.CreateSession(ctx, options)

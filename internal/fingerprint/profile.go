@@ -16,34 +16,52 @@ type Geolocation struct {
 }
 
 type Profile struct {
-	UserAgent           string
-	Platform            string
-	Vendor              string
-	WebGLVendor         string
-	WebGLRenderer       string
-	FingerprintSeed     uint32
-	CanvasNoiseR        int
-	CanvasNoiseG        int
-	CanvasNoiseB        int
-	AudioNoise          float64
-	ViewportWidth       int
-	ViewportHeight      int
-	ScreenWidth         int
-	ScreenHeight        int
-	AvailWidth          int
-	AvailHeight         int
-	DeviceScaleFactor   float64
-	ColorDepth          int
-	PixelDepth          int
-	Locale              string
-	Languages           []string
-	AcceptLanguage      string
-	TimezoneID          string
-	HardwareConcurrency int
-	DeviceMemory        int
-	MaxTouchPoints      int
-	UserAgentMetadata   *proto.EmulationUserAgentMetadata
-	Geolocation         *Geolocation
+	UserAgent               string
+	Platform                string
+	Vendor                  string
+	WebGLVendor             string
+	WebGLRenderer           string
+	ChromeKeys              []string
+	PreserveNativeNavigator bool
+	PreserveNativeScreen    bool
+	PreserveNativeGraphics  bool
+	PreserveNativeMedia     bool
+	FingerprintSeed         uint32
+	CanvasNoiseR            int
+	CanvasNoiseG            int
+	CanvasNoiseB            int
+	AudioNoise              float64
+	ViewportWidth           int
+	ViewportHeight          int
+	OuterWidth              int
+	OuterHeight             int
+	WindowScreenX           int
+	WindowScreenY           int
+	ScreenWidth             int
+	ScreenHeight            int
+	AvailWidth              int
+	AvailHeight             int
+	DeviceScaleFactor       float64
+	ColorDepth              int
+	PixelDepth              int
+	Locale                  string
+	Languages               []string
+	AcceptLanguage          string
+	TimezoneID              string
+	HardwareConcurrency     int
+	DeviceMemory            int
+	MaxTouchPoints          int
+	SpeechVoices            []SpeechVoice
+	UserAgentMetadata       *proto.EmulationUserAgentMetadata
+	Geolocation             *Geolocation
+}
+
+type SpeechVoice struct {
+	Name         string `json:"name"`
+	Lang         string `json:"lang"`
+	VoiceURI     string `json:"voiceURI"`
+	Default      bool   `json:"default"`
+	LocalService bool   `json:"localService"`
 }
 
 type geoResolver interface {
@@ -93,6 +111,7 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessi
 		Vendor:              uaProfile.Vendor,
 		WebGLVendor:         uaProfile.WebGLVendor,
 		WebGLRenderer:       uaProfile.WebGLRenderer,
+		ChromeKeys:          cloneStrings(native.ChromeKeys),
 		Locale:              locale,
 		Languages:           languages,
 		AcceptLanguage:      strings.Join(languages, ","),
@@ -100,6 +119,7 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessi
 		HardwareConcurrency: 8,
 		DeviceMemory:        8,
 		MaxTouchPoints:      0,
+		SpeechVoices:        buildSpeechVoices(locale, uaProfile.OSFamily),
 		UserAgentMetadata:   uaProfile.Metadata,
 	}
 	templateKey := stableFingerprintKey(options, effectiveUA, locale, timezoneID, sessionSeed)
@@ -129,6 +149,7 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessi
 	if template.DeviceMemory > 0 {
 		profile.DeviceMemory = template.DeviceMemory
 	}
+	applyWindowFrame(&profile, uaProfile.OSFamily, native)
 
 	if strings.TrimSpace(options.UserAgent) == "" {
 		applyNativeMetrics(&profile, native)
@@ -146,11 +167,21 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessi
 }
 
 func applyNativeMetrics(profile *Profile, native NativeMetrics) {
-	if native.ColorDepth > 0 {
-		profile.ColorDepth = native.ColorDepth
+	profile.PreserveNativeNavigator = true
+	profile.PreserveNativeScreen = true
+	profile.PreserveNativeGraphics = true
+	profile.PreserveNativeMedia = true
+
+	profile.AudioNoise = 0
+
+	if native.HardwareConcurrency > 0 {
+		profile.HardwareConcurrency = native.HardwareConcurrency
 	}
-	if native.PixelDepth > 0 {
-		profile.PixelDepth = native.PixelDepth
+	if native.DeviceMemory > 0 {
+		profile.DeviceMemory = native.DeviceMemory
+	}
+	if native.MaxTouchPoints >= 0 {
+		profile.MaxTouchPoints = native.MaxTouchPoints
 	}
 }
 
@@ -362,6 +393,76 @@ func stableFingerprintKey(options model.SessionOptions, effectiveUA, locale, tim
 	return sessionSeed
 }
 
+func applyWindowFrame(profile *Profile, osFamily string, native NativeMetrics) {
+	frameWidth, frameHeight := defaultWindowFrame(osFamily)
+
+	if deltaWidth := native.OuterWidth - native.InnerWidth; deltaWidth >= 8 && deltaWidth <= 32 {
+		frameWidth = deltaWidth
+	}
+	if deltaHeight := native.OuterHeight - native.InnerHeight; deltaHeight >= 60 && deltaHeight <= 160 {
+		frameHeight = deltaHeight
+	}
+
+	profile.OuterWidth = clampToScreen(profile.ViewportWidth+frameWidth, profile.ViewportWidth, profile.ScreenWidth)
+	profile.OuterHeight = clampToScreen(profile.ViewportHeight+frameHeight, profile.ViewportHeight, profile.ScreenHeight)
+
+	profile.WindowScreenX = 10
+	profile.WindowScreenY = 10
+	if native.ScreenX >= 0 {
+		profile.WindowScreenX = native.ScreenX
+	}
+	if native.ScreenY >= 0 {
+		profile.WindowScreenY = native.ScreenY
+	}
+
+	maxX := maxInt(0, profile.ScreenWidth-profile.OuterWidth)
+	maxY := maxInt(0, profile.ScreenHeight-profile.OuterHeight)
+	if profile.WindowScreenX > maxX {
+		profile.WindowScreenX = maxX
+	}
+	if profile.WindowScreenY > maxY {
+		profile.WindowScreenY = maxY
+	}
+}
+
+func defaultWindowFrame(osFamily string) (int, int) {
+	switch osFamily {
+	case "mac":
+		return 0, 78
+	case "linux":
+		return 16, 84
+	default:
+		return 16, 88
+	}
+}
+
+func clampToScreen(value, minimum, screen int) int {
+	if value < minimum {
+		value = minimum
+	}
+	if screen > 0 && value > screen {
+		return screen
+	}
+	return value
+}
+
+func maxInt(left, right int) int {
+	if left > right {
+		return left
+	}
+	return right
+}
+
+func cloneStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	cloned := make([]string, len(values))
+	copy(cloned, values)
+	return cloned
+}
+
 func canvasNoise(seed uint32) (int, int, int) {
 	r := int(seed%5) - 2
 	g := int((seed/7)%5) - 2
@@ -378,4 +479,73 @@ func audioNoise(seed uint32) float64 {
 		return step
 	}
 	return -step
+}
+
+func buildSpeechVoices(locale, osFamily string) []SpeechVoice {
+	normalized := strings.TrimSpace(locale)
+	if normalized == "" {
+		normalized = "en-US"
+	}
+
+	if voices, ok := speechVoicesByLocale[normalized]; ok {
+		return cloneSpeechVoices(voices)
+	}
+
+	prefix := normalized
+	if index := strings.Index(prefix, "-"); index > 0 {
+		prefix = prefix[:index]
+	}
+	if voices, ok := speechVoicesByLanguage[prefix]; ok {
+		return cloneSpeechVoices(voices)
+	}
+
+	if osFamily == "mac" {
+		return cloneSpeechVoices(defaultMacVoices)
+	}
+
+	return cloneSpeechVoices(defaultWindowsVoices)
+}
+
+func cloneSpeechVoices(voices []SpeechVoice) []SpeechVoice {
+	cloned := make([]SpeechVoice, len(voices))
+	copy(cloned, voices)
+	return cloned
+}
+
+var speechVoicesByLocale = map[string][]SpeechVoice{
+	"cs-CZ": {
+		{Name: "Microsoft Jakub - Czech (Czech Republic)", Lang: "cs-CZ", VoiceURI: "Microsoft Jakub - Czech (Czech Republic)", Default: true, LocalService: true},
+		{Name: "Microsoft Zuzana - Czech (Czech Republic)", Lang: "cs-CZ", VoiceURI: "Microsoft Zuzana - Czech (Czech Republic)", Default: false, LocalService: true},
+	},
+	"de-DE": {
+		{Name: "Microsoft Katja - German (Germany)", Lang: "de-DE", VoiceURI: "Microsoft Katja - German (Germany)", Default: true, LocalService: true},
+		{Name: "Microsoft Conrad - German (Germany)", Lang: "de-DE", VoiceURI: "Microsoft Conrad - German (Germany)", Default: false, LocalService: true},
+	},
+	"en-US": {
+		{Name: "Microsoft David - English (United States)", Lang: "en-US", VoiceURI: "Microsoft David - English (United States)", Default: true, LocalService: true},
+		{Name: "Microsoft Zira - English (United States)", Lang: "en-US", VoiceURI: "Microsoft Zira - English (United States)", Default: false, LocalService: true},
+	},
+	"es-ES": {
+		{Name: "Microsoft Helena - Spanish (Spain)", Lang: "es-ES", VoiceURI: "Microsoft Helena - Spanish (Spain)", Default: true, LocalService: true},
+		{Name: "Microsoft Laura - Spanish (Spain)", Lang: "es-ES", VoiceURI: "Microsoft Laura - Spanish (Spain)", Default: false, LocalService: true},
+	},
+	"fr-FR": {
+		{Name: "Microsoft Julie - French (France)", Lang: "fr-FR", VoiceURI: "Microsoft Julie - French (France)", Default: true, LocalService: true},
+		{Name: "Microsoft Paul - French (France)", Lang: "fr-FR", VoiceURI: "Microsoft Paul - French (France)", Default: false, LocalService: true},
+	},
+}
+
+var speechVoicesByLanguage = map[string][]SpeechVoice{
+	"cs": speechVoicesByLocale["cs-CZ"],
+	"de": speechVoicesByLocale["de-DE"],
+	"en": speechVoicesByLocale["en-US"],
+	"es": speechVoicesByLocale["es-ES"],
+	"fr": speechVoicesByLocale["fr-FR"],
+}
+
+var defaultWindowsVoices = speechVoicesByLocale["en-US"]
+
+var defaultMacVoices = []SpeechVoice{
+	{Name: "Samantha", Lang: "en-US", VoiceURI: "com.apple.voice.compact.en-US.Samantha", Default: true, LocalService: true},
+	{Name: "Alex", Lang: "en-US", VoiceURI: "com.apple.voice.compact.en-US.Alex", Default: false, LocalService: true},
 }

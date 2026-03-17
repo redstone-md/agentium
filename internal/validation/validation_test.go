@@ -38,3 +38,17 @@ func TestValidateSessionOptionsRejectsLongProfileID(t *testing.T) {
 		t.Fatal("expected long profile_id to fail validation")
 	}
 }
+
+func TestValidateSessionOptionsAcceptsPersistentMode(t *testing.T) {
+	err := ValidateSessionOptions(model.SessionOptions{SessionMode: model.SessionModePersistent})
+	if err != nil {
+		t.Fatalf("expected persistent session mode to pass validation: %v", err)
+	}
+}
+
+func TestValidateSessionOptionsRejectsUnknownSessionMode(t *testing.T) {
+	err := ValidateSessionOptions(model.SessionOptions{SessionMode: "bad"})
+	if err == nil {
+		t.Fatal("expected invalid session_mode to fail validation")
+	}
+}

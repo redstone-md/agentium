@@ -91,6 +91,12 @@ func TestResolverHonorsExplicitOverrides(t *testing.T) {
 	if profile.AudioNoise == 0 {
 		t.Fatal("expected audio noise to be populated")
 	}
+	if profile.OuterWidth < profile.ViewportWidth || profile.OuterHeight < profile.ViewportHeight {
+		t.Fatalf("expected realistic outer window frame, got %dx%d for viewport %dx%d", profile.OuterWidth, profile.OuterHeight, profile.ViewportWidth, profile.ViewportHeight)
+	}
+	if profile.OuterWidth == profile.ViewportWidth && profile.OuterHeight == profile.ViewportHeight {
+		t.Fatalf("expected at least one outer dimension to exceed viewport, got %dx%d for viewport %dx%d", profile.OuterWidth, profile.OuterHeight, profile.ViewportWidth, profile.ViewportHeight)
+	}
 }
 
 func TestResolverUsesStableFingerprintForMatchingInputs(t *testing.T) {
@@ -169,16 +175,77 @@ func TestResolverUsesNativeGraphicsMetricsForImplicitProfiles(t *testing.T) {
 		t.Fatalf("resolve profile: %v", err)
 	}
 
-	if profile.ScreenWidth == 1920 && profile.ScreenHeight == 1080 {
-		t.Fatalf("expected session hardware template to stay isolated from native screen metrics")
+	if profile.ScreenWidth == 0 || profile.ScreenHeight == 0 {
+		t.Fatalf("expected implicit profile to keep non-zero template screen metrics, got %dx%d", profile.ScreenWidth, profile.ScreenHeight)
+	}
+	if profile.ScreenWidth == 1920 && profile.ScreenHeight == 1080 && profile.AvailWidth == 1920 && profile.AvailHeight == 1040 {
+		t.Fatalf("expected implicit profile to avoid mirroring native screen metrics, got %dx%d / %dx%d", profile.ScreenWidth, profile.ScreenHeight, profile.AvailWidth, profile.AvailHeight)
 	}
 	if profile.WebGLRenderer == "Intel(R) Iris(R) Xe Graphics" {
-		t.Fatalf("expected webgl renderer to stay on the session preset, got %q", profile.WebGLRenderer)
+		t.Fatalf("expected implicit profile to keep template webgl renderer, got native value %q", profile.WebGLRenderer)
 	}
 	if profile.DeviceScaleFactor == 1.25 {
-		t.Fatalf("expected device scale factor to come from session template, got %v", profile.DeviceScaleFactor)
+		t.Fatalf("expected implicit profile to keep template device scale factor, got native value %v", profile.DeviceScaleFactor)
 	}
-	if profile.ColorDepth != 30 || profile.PixelDepth != 30 {
-		t.Fatalf("expected native color depth overrides, got %d / %d", profile.ColorDepth, profile.PixelDepth)
+	if profile.ColorDepth == 30 || profile.PixelDepth == 30 {
+		t.Fatalf("expected implicit profile to keep template color depth, got %d / %d", profile.ColorDepth, profile.PixelDepth)
+	}
+	if !profile.PreserveNativeNavigator || !profile.PreserveNativeMedia {
+		t.Fatal("expected implicit profile to preserve native navigator and media surfaces")
+	}
+	if !profile.PreserveNativeScreen || !profile.PreserveNativeGraphics {
+		t.Fatal("expected implicit profile to preserve native screen and graphics surfaces")
+	}
+	if profile.AudioNoise != 0 {
+		t.Fatal("expected implicit profile to disable audio masking noise")
+	}
+	if profile.CanvasNoiseR == 0 && profile.CanvasNoiseG == 0 && profile.CanvasNoiseB == 0 {
+		t.Fatal("expected implicit profile to keep stable webgl noise")
+	}
+	if profile.OuterWidth < profile.ViewportWidth || profile.OuterHeight < profile.ViewportHeight {
+		t.Fatalf("expected implicit profile to keep realistic outer window frame, got %dx%d for viewport %dx%d", profile.OuterWidth, profile.OuterHeight, profile.ViewportWidth, profile.ViewportHeight)
+	}
+	if profile.OuterWidth == profile.ViewportWidth && profile.OuterHeight == profile.ViewportHeight {
+		t.Fatalf("expected at least one implicit outer dimension to exceed viewport, got %dx%d for viewport %dx%d", profile.OuterWidth, profile.OuterHeight, profile.ViewportWidth, profile.ViewportHeight)
+	}
+}
+
+func TestResolverBuildsLocaleAwareSpeechVoices(t *testing.T) {
+	resolver := NewResolver(stubGeoResolver{
+		geo: GeoData{
+			CountryCode: "CZ",
+			Locale:      "cs-CZ",
+			TimezoneID:  "Europe/Prague",
+		},
+	})
+
+	profile, err := resolver.Resolve(model.SessionOptions{}, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36", "session-voices", NativeMetrics{})
+	if err != nil {
+		t.Fatalf("resolve profile: %v", err)
+	}
+
+	if len(profile.SpeechVoices) == 0 {
+		t.Fatal("expected locale-aware speech voices to be populated")
+	}
+	if profile.SpeechVoices[0].Lang != "cs-CZ" {
+		t.Fatalf("expected first speech voice to match locale, got %q", profile.SpeechVoices[0].Lang)
+	}
+	if profile.SpeechVoices[0].Name == "" || profile.SpeechVoices[0].VoiceURI == "" {
+		t.Fatalf("expected speech voice metadata to be populated, got %+v", profile.SpeechVoices[0])
+	}
+}
+
+func TestResolverCopiesNativeChromeKeys(t *testing.T) {
+	resolver := NewResolver(stubGeoResolver{})
+
+	profile, err := resolver.Resolve(model.SessionOptions{}, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36", "session-chrome", NativeMetrics{
+		ChromeKeys: []string{"loadTimes", "csi", "app"},
+	})
+	if err != nil {
+		t.Fatalf("resolve profile: %v", err)
+	}
+
+	if len(profile.ChromeKeys) != 3 {
+		t.Fatalf("expected native chrome keys to be preserved, got %v", profile.ChromeKeys)
 	}
 }

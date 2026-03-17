@@ -3,11 +3,28 @@ package model
 import "time"
 
 type SessionOptions struct {
-	Proxy      string `json:"proxy,omitempty"`
-	TimezoneID string `json:"timezone_id,omitempty"`
-	Locale     string `json:"locale,omitempty"`
-	UserAgent  string `json:"user_agent,omitempty"`
-	ProfileID  string `json:"profile_id,omitempty"`
+	Proxy       string      `json:"proxy,omitempty"`
+	TimezoneID  string      `json:"timezone_id,omitempty"`
+	Locale      string      `json:"locale,omitempty"`
+	UserAgent   string      `json:"user_agent,omitempty"`
+	ProfileID   string      `json:"profile_id,omitempty"`
+	SessionMode SessionMode `json:"session_mode,omitempty"`
+}
+
+type SessionMode string
+
+const (
+	SessionModeIncognito  SessionMode = "incognito"
+	SessionModePersistent SessionMode = "persistent"
+)
+
+func (o SessionOptions) EffectiveSessionMode() SessionMode {
+	switch o.SessionMode {
+	case SessionModePersistent:
+		return SessionModePersistent
+	default:
+		return SessionModeIncognito
+	}
 }
 
 type Viewport struct {

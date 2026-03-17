@@ -3,6 +3,7 @@ param(
   [string]$TargetUrl = "https://pixelscan.net/fingerprint-check",
   [string]$Locale = "",
   [string]$ProfileId = "",
+  [string]$SessionMode = "persistent",
   [int]$DelayAfterNavigateSeconds = 15
 )
 
@@ -35,6 +36,9 @@ if ($Locale) {
 }
 if ($ProfileId) {
   $sessionOptions.profile_id = $ProfileId
+}
+if ($SessionMode) {
+  $sessionOptions.session_mode = $SessionMode
 }
 
 $session = Invoke-RestMethod -Uri "$BaseUrl/v1/sessions" -Method Post -ContentType "application/json" -Body ($sessionOptions | ConvertTo-Json)

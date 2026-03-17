@@ -1,6 +1,7 @@
 param(
   [string]$BaseUrl = "http://127.0.0.1:8080",
   [string]$TargetUrl = "https://www.browserscan.net/bot-detection",
+  [string]$SessionMode = "persistent",
   [int]$DelayAfterNavigateSeconds = 12,
   [int]$DelayAfterConsentSeconds = 10
 )
@@ -43,6 +44,7 @@ Wait-ForHealth -Url $BaseUrl | Out-Null
 
 $session = Invoke-RestMethod -Uri "$BaseUrl/v1/sessions" -Method Post -ContentType "application/json" -Body (@{
   locale = "en-US"
+  session_mode = $SessionMode
 } | ConvertTo-Json)
 
 $sessionId = $session.session_id

@@ -57,6 +57,9 @@ func TestCreateSession(t *testing.T) {
 			if options.Locale != "en-GB" {
 				t.Fatalf("unexpected locale: %q", options.Locale)
 			}
+			if options.SessionMode != model.SessionModePersistent {
+				t.Fatalf("unexpected session mode: %q", options.SessionMode)
+			}
 			return "session-123", nil
 		},
 		closeSession: func(context.Context, string) error { return nil },
@@ -68,7 +71,7 @@ func TestCreateSession(t *testing.T) {
 	})
 	handler.Register(e)
 
-	body := bytes.NewBufferString(`{"locale":"en-GB"}`)
+	body := bytes.NewBufferString(`{"locale":"en-GB","session_mode":"persistent"}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/sessions", body)
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
 	rec := httptest.NewRecorder()

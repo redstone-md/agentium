@@ -31,6 +31,12 @@ func ValidateSessionOptions(input model.SessionOptions) error {
 		return errors.New("profile_id is too long")
 	}
 
+	switch normalizeSessionMode(input.SessionMode) {
+	case "", model.SessionModeIncognito, model.SessionModePersistent:
+	default:
+		return errors.New("session_mode is invalid")
+	}
+
 	return nil
 }
 
@@ -60,4 +66,8 @@ func ValidateActionRequest(input model.ActionRequest) error {
 	}
 
 	return nil
+}
+
+func normalizeSessionMode(value model.SessionMode) model.SessionMode {
+	return model.SessionMode(strings.TrimSpace(string(value)))
 }
