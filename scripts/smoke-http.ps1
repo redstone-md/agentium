@@ -36,6 +36,12 @@ try {
 
   Write-Host "Fetching snapshot..."
   $snapshot = Invoke-RestMethod -Uri "$BaseUrl/v1/sessions/$sessionId/snapshot" -Method Get
+  $snapshotJson = $snapshot | ConvertTo-Json -Depth 8 -Compress
+  $snapshotBytes = [Text.Encoding]::UTF8.GetByteCount($snapshotJson)
+  Write-Host "Snapshot size: $snapshotBytes bytes"
+  if ($snapshotBytes -gt 20480) {
+    throw "snapshot exceeded 20KB limit: $snapshotBytes bytes"
+  }
   $snapshot | ConvertTo-Json -Depth 8
 }
 finally {

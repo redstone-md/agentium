@@ -63,10 +63,29 @@ const DistillScript = `
   };
 
   const items = [];
-  let refId = 1;
+  const candidates = [];
+
+  const scoreFor = (el, role, text, canInteract, rect) => {
+    let score = 0;
+    if (canInteract) score += 1000;
+    if (role === 'button' || role === 'link') score += 300;
+    if (role === 'input' || role === 'checkbox') score += 250;
+    if (text) score += Math.min(text.length, 120);
+    if (el.getAttribute('aria-label')) score += 120;
+    if (el.tagName.toLowerCase() === 'img') score += 50;
+    score += Math.min(rect.width * rect.height, 5000) / 100;
+
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    const viewportCenterX = viewport.width / 2;
+    const viewportCenterY = viewport.height / 2;
+    const distance = Math.hypot(centerX - viewportCenterX, centerY - viewportCenterY);
+    score -= Math.min(distance / 10, 100);
+
+    return score;
+  };
 
   for (const el of document.querySelectorAll('body *')) {
-    if (items.length >= limit) break;
     if (!(el instanceof HTMLElement)) continue;
 
     const rect = el.getBoundingClientRect();
@@ -77,9 +96,10 @@ const DistillScript = `
     const canInteract = interactable(el, role);
     if (!text && !canInteract) continue;
 
-    el.setAttribute('agentium-id', String(refId));
-    items.push({
-      ref_id: refId,
+    candidates.push({
+      el,
+      score: scoreFor(el, role, text, canInteract, rect),
+      data: {
       role,
       text,
       interactable: canInteract,
@@ -90,8 +110,25 @@ const DistillScript = `
         w: Math.max(0, rect.width),
         h: Math.max(0, rect.height)
       }
+      }
     });
-    refId += 1;
+  }
+
+  candidates
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .forEach((candidate, index) => {
+      const refId = index + 1;
+      candidate.el.setAttribute('agentium-id', String(refId));
+      items.push({
+        ref_id: refId,
+        ...candidate.data
+      });
+    });
+
+  items.sort((a, b) => a.ref_id - b.ref_id);
+  for (const item of items) {
+    delete item.__score;
   }
 
   return {
