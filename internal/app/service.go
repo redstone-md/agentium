@@ -21,6 +21,14 @@ type Service struct {
 	actions  *action.Service
 }
 
+type AgentiumService interface {
+	CreateSession(ctx context.Context, options model.SessionOptions) (string, error)
+	CloseSession(ctx context.Context, sessionID string) error
+	GetSnapshot(ctx context.Context, sessionID string) (model.Snapshot, error)
+	PerformAction(ctx context.Context, sessionID string, input model.ActionRequest) (model.ActionResult, error)
+	Close() error
+}
+
 func NewService(cfg config.Config) *Service {
 	return &Service{
 		manager:  session.NewManager(),

@@ -11,7 +11,7 @@ import (
 )
 
 type Server struct {
-	service *app.Service
+	service app.AgentiumService
 }
 
 type createSessionInput struct {
@@ -36,7 +36,7 @@ type actionInput struct {
 	Options   model.ActionOptions `json:"options,omitempty" jsonschema:"Optional action parameters"`
 }
 
-func New(service *app.Service) *Server {
+func New(service app.AgentiumService) *Server {
 	return &Server{service: service}
 }
 
