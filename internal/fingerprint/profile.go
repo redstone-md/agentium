@@ -53,7 +53,7 @@ func NewResolver(geo geoResolver) *Resolver {
 	return &Resolver{geo: geo}
 }
 
-func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent string) (Profile, error) {
+func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent, sessionSeed string) (Profile, error) {
 	effectiveUA := strings.TrimSpace(options.UserAgent)
 	if effectiveUA == "" {
 		effectiveUA = strings.TrimSpace(browserUserAgent)
@@ -97,7 +97,11 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent string
 		MaxTouchPoints:      0,
 		UserAgentMetadata:   uaProfile.Metadata,
 	}
-	template := selectHardwareTemplate(uaProfile.OSFamily, stableSeed(options.Proxy+"|"+effectiveUA+"|"+locale+"|"+timezoneID))
+	templateKey := sessionSeed
+	if templateKey == "" {
+		templateKey = options.Proxy + "|" + effectiveUA + "|" + locale + "|" + timezoneID
+	}
+	template := selectHardwareTemplate(uaProfile.OSFamily, stableSeed(templateKey))
 	profile.ViewportWidth = template.ViewportWidth
 	profile.ViewportHeight = template.ViewportHeight
 	profile.ScreenWidth = template.ScreenWidth

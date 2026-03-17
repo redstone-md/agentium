@@ -27,7 +27,7 @@ func TestResolverUsesBrowserUserAgentWhenRequestOmitsIt(t *testing.T) {
 		},
 	})
 
-	profile, err := resolver.Resolve(model.SessionOptions{}, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36")
+	profile, err := resolver.Resolve(model.SessionOptions{}, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36", "session-a")
 	if err != nil {
 		t.Fatalf("resolve profile: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestResolverHonorsExplicitOverrides(t *testing.T) {
 		Locale:     "de-DE",
 		TimezoneID: "Europe/Berlin",
 		UserAgent:  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-	}, "")
+	}, "", "session-b")
 	if err != nil {
 		t.Fatalf("resolve profile: %v", err)
 	}
@@ -87,5 +87,29 @@ func TestResolverHonorsExplicitOverrides(t *testing.T) {
 	}
 	if profile.DeviceScaleFactor != 1 {
 		t.Fatalf("expected windows device scale factor 1, got %v", profile.DeviceScaleFactor)
+	}
+}
+
+func TestResolverUsesSessionSeedForUniqueHardwareProfiles(t *testing.T) {
+	resolver := NewResolver(stubGeoResolver{
+		geo: GeoData{
+			CountryCode: "ES",
+			Locale:      "es-ES",
+			TimezoneID:  "Europe/Madrid",
+		},
+	})
+
+	first, err := resolver.Resolve(model.SessionOptions{}, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36", "session-1")
+	if err != nil {
+		t.Fatalf("resolve first profile: %v", err)
+	}
+
+	second, err := resolver.Resolve(model.SessionOptions{}, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36", "session-2")
+	if err != nil {
+		t.Fatalf("resolve second profile: %v", err)
+	}
+
+	if first.ScreenWidth == second.ScreenWidth && first.ScreenHeight == second.ScreenHeight && first.ViewportWidth == second.ViewportWidth {
+		t.Fatal("expected different session seeds to vary hardware template selection")
 	}
 }

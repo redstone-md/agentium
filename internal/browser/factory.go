@@ -63,6 +63,8 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 		return nil, fmt.Errorf("create page: %w", err)
 	}
 
+	id := uuid.NewString()
+
 	browserVersion, err := rootBrowser.Version()
 	if err != nil {
 		_ = page.Close()
@@ -71,7 +73,7 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 		return nil, fmt.Errorf("read browser version: %w", err)
 	}
 
-	profile, err := f.resolver.Resolve(options, browserVersion.UserAgent)
+	profile, err := f.resolver.Resolve(options, browserVersion.UserAgent, id)
 	if err != nil {
 		_ = page.Close()
 		_ = contextBrowser.Close()
@@ -126,7 +128,6 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 	tracker := telemetry.NewTracker(100)
 	bindNetworkEvents(page, tracker)
 
-	id := uuid.NewString()
 	closeFn := func() error {
 		restoreNetwork()
 		closeErr := closeSessionResources(page, contextBrowser)
