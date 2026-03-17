@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/proto"
 )
 
 type OverrideProfile struct {
@@ -25,7 +26,7 @@ func ApplyStealth(page *rod.Page, userAgent, locale string) error {
 		languages = "[" + strings.Join(quoted, ",") + "]"
 	}
 
-	script := fmt.Sprintf(`() => {
+	script := fmt.Sprintf(`(() => {
 		const define = (target, key, value) => {
 			Object.defineProperty(target, key, { get: () => value, configurable: true });
 		};
@@ -41,9 +42,12 @@ func ApplyStealth(page *rod.Page, userAgent, locale string) error {
 				}
 			};
 		}
-	}`, profile.Platform, profile.HardwareConcurrency, profile.DeviceMemory, languages)
+	})();`, profile.Platform, profile.HardwareConcurrency, profile.DeviceMemory, languages)
 
-	if _, err := page.Eval(script); err != nil {
+	if _, err := (proto.PageAddScriptToEvaluateOnNewDocument{
+		Source:         script,
+		RunImmediately: true,
+	}).Call(page); err != nil {
 		return fmt.Errorf("apply overrides: %w", err)
 	}
 

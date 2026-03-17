@@ -21,8 +21,17 @@ func (s *Service) Capture(runtime *session.Runtime) (model.Snapshot, error) {
 	}
 
 	var snapshot model.Snapshot
-	if err := json.Unmarshal([]byte(result.Value.String()), &snapshot); err != nil {
-		return model.Snapshot{}, fmt.Errorf("decode snapshot: %w", err)
+	if err := result.Value.Unmarshal(&snapshot); err != nil {
+		payload, _ := json.Marshal(result.Value.Raw())
+		return model.Snapshot{}, fmt.Errorf("decode snapshot: %w: %s", err, string(payload))
+	}
+
+	if snapshot.Elements == nil {
+		snapshot.Elements = []model.SnapshotElement{}
+	}
+
+	if snapshot.Viewport.Width == 0 || snapshot.Viewport.Height == 0 {
+		return model.Snapshot{}, fmt.Errorf("decode snapshot: viewport was empty")
 	}
 
 	runtime.UpdateRefs(snapshot.Elements)

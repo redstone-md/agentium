@@ -2,6 +2,7 @@ package browser
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"agentium/internal/config"
@@ -104,7 +105,7 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 }
 
 func applyPageEmulation(page *rod.Page, options model.SessionOptions) error {
-	if options.UserAgent != "" || options.Locale != "" {
+	if options.UserAgent != "" {
 		if err := (proto.NetworkSetUserAgentOverride{
 			UserAgent:      options.UserAgent,
 			AcceptLanguage: options.Locale,
@@ -120,11 +121,21 @@ func applyPageEmulation(page *rod.Page, options model.SessionOptions) error {
 		}
 	}
 
+	if options.Locale != "" {
+		if err := (proto.EmulationSetLocaleOverride{Locale: normalizeLocale(options.Locale)}).Call(page); err != nil {
+			return fmt.Errorf("set locale: %w", err)
+		}
+	}
+
 	if err := ApplyStealth(page, options.UserAgent, options.Locale); err != nil {
 		return err
 	}
 
 	return nil
+}
+
+func normalizeLocale(value string) string {
+	return strings.ReplaceAll(value, "-", "_")
 }
 
 func bindNetworkEvents(page *rod.Page, tracker *telemetry.Tracker) {

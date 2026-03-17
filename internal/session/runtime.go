@@ -16,10 +16,11 @@ type Runtime struct {
 	Page           *rod.Page
 	Tracker        *telemetry.Tracker
 
-	mu    sync.RWMutex
-	refs  map[int]model.SnapshotElement
-	mouse point
-	close func() error
+	actionMu sync.Mutex
+	stateMu  sync.RWMutex
+	refs     map[int]model.SnapshotElement
+	mouse    point
+	close    func() error
 }
 
 type point struct {
@@ -50,8 +51,8 @@ func NewRuntime(
 }
 
 func (r *Runtime) UpdateRefs(elements []model.SnapshotElement) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
 
 	r.refs = make(map[int]model.SnapshotElement, len(elements))
 	for _, element := range elements {
@@ -60,28 +61,28 @@ func (r *Runtime) UpdateRefs(elements []model.SnapshotElement) {
 }
 
 func (r *Runtime) Ref(refID int) (model.SnapshotElement, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
 
 	element, ok := r.refs[refID]
 	return element, ok
 }
 
 func (r *Runtime) MousePosition() (float64, float64) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
 	return r.mouse.X, r.mouse.Y
 }
 
 func (r *Runtime) SetMousePosition(x, y float64) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
 	r.mouse = point{X: x, Y: y}
 }
 
 func (r *Runtime) WithLock(fn func() error) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.actionMu.Lock()
+	defer r.actionMu.Unlock()
 	return fn()
 }
 
