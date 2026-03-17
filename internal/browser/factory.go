@@ -141,7 +141,7 @@ func normalizeLocale(value string) string {
 func bindNetworkEvents(page *rod.Page, tracker *telemetry.Tracker) {
 	go page.EachEvent(
 		func(event *proto.NetworkRequestWillBeSent) {
-			tracker.Push(model.NetworkEvent{
+			tracker.OnRequest(model.NetworkEvent{
 				Timestamp:    time.Now(),
 				RequestID:    string(event.RequestID),
 				Method:       event.Request.Method,
@@ -151,29 +151,13 @@ func bindNetworkEvents(page *rod.Page, tracker *telemetry.Tracker) {
 			})
 		},
 		func(event *proto.NetworkResponseReceived) {
-			tracker.Push(model.NetworkEvent{
-				Timestamp:    time.Now(),
-				RequestID:    string(event.RequestID),
-				URL:          event.Response.URL,
-				Status:       int(event.Response.Status),
-				ResourceType: string(event.Type),
-				Stage:        "response",
-			})
+			tracker.OnResponse(string(event.RequestID), int(event.Response.Status), time.Now())
 		},
 		func(event *proto.NetworkLoadingFinished) {
-			tracker.Push(model.NetworkEvent{
-				Timestamp: time.Now(),
-				RequestID: string(event.RequestID),
-				Stage:     "finished",
-			})
+			tracker.OnFinished(string(event.RequestID), time.Now())
 		},
 		func(event *proto.NetworkLoadingFailed) {
-			tracker.Push(model.NetworkEvent{
-				Timestamp: time.Now(),
-				RequestID: string(event.RequestID),
-				Stage:     "failed",
-				ErrorText: event.ErrorText,
-			})
+			tracker.OnFailed(string(event.RequestID), event.ErrorText, time.Now())
 		},
 	)()
 }

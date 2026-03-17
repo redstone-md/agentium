@@ -175,12 +175,9 @@ func (s *Service) moveMouse(runtime *session.Runtime, x, y float64) error {
 }
 
 func (s *Service) waitNetworkIdle(runtime *session.Runtime, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if time.Since(runtime.Tracker.LastActivity()) > 500*time.Millisecond {
-			return nil
-		}
-		time.Sleep(100 * time.Millisecond)
+	if runtime.Tracker.WaitForIdle(500*time.Millisecond, timeout) {
+		return nil
 	}
+
 	return errors.New("network did not become idle before timeout")
 }
