@@ -3,6 +3,7 @@ param(
   [string]$BaseUrl = "http://127.0.0.1:8080",
   [string]$TargetUrl = "https://pixelscan.net/fingerprint-check",
   [string]$ProfileId = "",
+  [int]$DelayAfterNavigateSeconds = 15,
   [switch]$DisableLeakless
 )
 
@@ -21,7 +22,8 @@ try {
     "-NoProfile",
     "-File", ".\scripts\probe-pixelscan.ps1",
     "-BaseUrl", $BaseUrl,
-    "-TargetUrl", $TargetUrl
+    "-TargetUrl", $TargetUrl,
+    "-DelayAfterNavigateSeconds", $DelayAfterNavigateSeconds
   )
   if ($ProfileId) {
     $args += @("-ProfileId", $ProfileId)

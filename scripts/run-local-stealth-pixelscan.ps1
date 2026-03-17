@@ -2,6 +2,7 @@ param(
   [string]$BinaryPath = ".\agentium.exe",
   [string]$BaseUrl = "http://127.0.0.1:8080",
   [string]$ProfileId = "",
+  [int]$DelayAfterNavigateSeconds = 15,
   [switch]$DisableLeakless
 )
 
@@ -19,7 +20,8 @@ try {
   $args = @(
     "-NoProfile",
     "-File", ".\scripts\smoke-stealth-pixelscan.ps1",
-    "-BaseUrl", $BaseUrl
+    "-BaseUrl", $BaseUrl,
+    "-DelayAfterNavigateSeconds", $DelayAfterNavigateSeconds
   )
   if ($ProfileId) {
     $args += @("-ProfileId", $ProfileId)

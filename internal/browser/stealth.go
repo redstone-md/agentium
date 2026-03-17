@@ -43,24 +43,31 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 
 	script := fmt.Sprintf(`(() => {
 		const profile = %s;
+		const appVersion = profile.userAgent.startsWith('Mozilla/') ? profile.userAgent.slice('Mozilla/'.length) : profile.userAgent;
 		const define = (target, key, value) => {
 			Object.defineProperty(target, key, { get: () => value, configurable: true });
 		};
-		const overrideNavigatorValue = (key, value) => {
-			const proto = Object.getPrototypeOf(navigator);
+		const overrideNavigatorValue = (navigatorObject, key, value) => {
+			if (!navigatorObject) {
+				return;
+			}
+			const proto = Object.getPrototypeOf(navigatorObject);
 			const descriptor = Object.getOwnPropertyDescriptor(proto, key);
 			if (!descriptor || descriptor.configurable) {
 				define(proto, key, value);
 				return;
 			}
-			define(navigator, key, value);
+			define(navigatorObject, key, value);
 		};
-		const removeWebdriver = () => {
+		const removeWebdriver = (navigatorObject) => {
+			if (!navigatorObject) {
+				return;
+			}
 			try {
-				delete navigator.webdriver;
+				delete navigatorObject.webdriver;
 			} catch (_) {}
 
-			const proto = Object.getPrototypeOf(navigator);
+			const proto = Object.getPrototypeOf(navigatorObject);
 			const descriptor = Object.getOwnPropertyDescriptor(proto, 'webdriver');
 			if (descriptor && descriptor.configurable) {
 				try {
@@ -98,6 +105,70 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 				},
 				toJSON: () => ({ ...lowEntropy })
 			};
+		};
+		const navigatorValues = () => ({
+			appCodeName: 'Mozilla',
+			appName: 'Netscape',
+			appVersion,
+			deviceMemory: profile.deviceMemory,
+			hardwareConcurrency: profile.hardwareConcurrency,
+			language: profile.language,
+			languages: profile.languages,
+			maxTouchPoints: profile.maxTouchPoints,
+			onLine: true,
+			pdfViewerEnabled: true,
+			platform: profile.platform,
+			product: 'Gecko',
+			productSub: '20030107',
+			userAgent: profile.userAgent,
+			userAgentData: createUserAgentData(profile.userAgentData),
+			vendor: profile.vendor,
+			vendorSub: ''
+		});
+		const applyNavigatorProfile = (navigatorObject) => {
+			for (const [key, value] of Object.entries(navigatorValues())) {
+				overrideNavigatorValue(navigatorObject, key, value);
+			}
+			removeWebdriver(navigatorObject);
+		};
+		const patchWorkers = () => {
+			const buildWorkerBootstrap = (scriptURL, isModule) => {
+				const importLine = isModule ? 'import ' + scriptURL + ';' : 'importScripts(' + scriptURL + ');';
+				return [
+					'(() => {',
+					'const profile = ' + JSON.stringify(profile) + ';',
+					"const appVersion = profile.userAgent.startsWith('Mozilla/') ? profile.userAgent.slice('Mozilla/'.length) : profile.userAgent;",
+					"const define = (target, key, value) => Object.defineProperty(target, key, { get: () => value, configurable: true });",
+					"const overrideNavigatorValue = (navigatorObject, key, value) => { if (!navigatorObject) return; const proto = Object.getPrototypeOf(navigatorObject); const descriptor = Object.getOwnPropertyDescriptor(proto, key); if (!descriptor || descriptor.configurable) { define(proto, key, value); return; } define(navigatorObject, key, value); };",
+					'const createUserAgentData = ' + createUserAgentData.toString() + ';',
+					"const values = { appCodeName: 'Mozilla', appName: 'Netscape', appVersion, deviceMemory: profile.deviceMemory, hardwareConcurrency: profile.hardwareConcurrency, language: profile.language, languages: profile.languages, maxTouchPoints: profile.maxTouchPoints, onLine: true, pdfViewerEnabled: true, platform: profile.platform, product: 'Gecko', productSub: '20030107', userAgent: profile.userAgent, userAgentData: createUserAgentData(profile.userAgentData), vendor: profile.vendor, vendorSub: '' };",
+					"for (const [key, value] of Object.entries(values)) { overrideNavigatorValue(self.navigator, key, value); }",
+					"try { delete self.navigator.webdriver; } catch (_) {}",
+					'})();',
+					importLine,
+				].join('\n');
+			};
+			const patchWorkerConstructor = (key) => {
+				const NativeWorker = window[key];
+				if (typeof NativeWorker !== 'function') {
+					return;
+				}
+				const WrappedWorker = function(scriptURL, options) {
+					try {
+						const isModule = !!options && typeof options === 'object' && options.type === 'module';
+						const resolvedURL = new URL(scriptURL, location.href).href;
+						const wrappedURL = URL.createObjectURL(new Blob([buildWorkerBootstrap(JSON.stringify(resolvedURL), isModule)], { type: 'application/javascript' }));
+						setTimeout(() => URL.revokeObjectURL(wrappedURL), 30000);
+						return new NativeWorker(wrappedURL, options);
+					} catch (_) {
+						return new NativeWorker(scriptURL, options);
+					}
+				};
+				WrappedWorker.prototype = NativeWorker.prototype;
+				Object.defineProperty(window, key, { value: WrappedWorker, configurable: true });
+			};
+			patchWorkerConstructor('Worker');
+			patchWorkerConstructor('SharedWorker');
 		};
 		const patchWebRTC = () => {
 			const NativePeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection;
@@ -343,16 +414,8 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 			patchOfflineContext(window.OfflineAudioContext);
 			patchOfflineContext(window.webkitOfflineAudioContext);
 		};
-		overrideNavigatorValue('platform', profile.platform);
-		overrideNavigatorValue('userAgent', profile.userAgent);
-		overrideNavigatorValue('vendor', profile.vendor);
-		overrideNavigatorValue('language', profile.language);
-		overrideNavigatorValue('languages', profile.languages);
-		overrideNavigatorValue('hardwareConcurrency', profile.hardwareConcurrency);
-		overrideNavigatorValue('deviceMemory', profile.deviceMemory);
-		overrideNavigatorValue('maxTouchPoints', profile.maxTouchPoints);
-		overrideNavigatorValue('userAgentData', createUserAgentData(profile.userAgentData));
-		removeWebdriver();
+		applyNavigatorProfile(navigator);
+		patchWorkers();
 		patchWebRTC();
 		patchWebGL();
 		patchScreen();
