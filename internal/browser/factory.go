@@ -21,17 +21,22 @@ type Factory struct {
 	config   config.Config
 	mu       sync.Mutex
 	browsers map[string]*sharedBrowser
+	idleTTL  time.Duration
 }
 
 type sharedBrowser struct {
-	rootBrowser *rod.Browser
-	refCount    int
+	rootBrowser    *rod.Browser
+	refCount       int
+	lastReleasedAt time.Time
 }
+
+const idleBrowserTTL = 30 * time.Second
 
 func NewFactory(cfg config.Config) *Factory {
 	return &Factory{
 		config:   cfg,
 		browsers: make(map[string]*sharedBrowser),
+		idleTTL:  idleBrowserTTL,
 	}
 }
 
@@ -94,6 +99,7 @@ func (f *Factory) acquireRootBrowser(proxyKey, proxyURL string) (*rod.Browser, e
 	f.mu.Lock()
 	if browser := f.browsers[proxyKey]; browser != nil {
 		browser.refCount++
+		browser.lastReleasedAt = time.Time{}
 		root := browser.rootBrowser
 		f.mu.Unlock()
 		return root, nil
@@ -123,18 +129,24 @@ func (f *Factory) acquireRootBrowser(proxyKey, proxyURL string) (*rod.Browser, e
 
 func (f *Factory) releaseRootBrowser(proxyKey string) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-
 	browser := f.browsers[proxyKey]
 	if browser == nil {
+		f.mu.Unlock()
 		return
 	}
 
 	browser.refCount--
-	if browser.refCount <= 0 {
-		_ = browser.rootBrowser.Close()
-		delete(f.browsers, proxyKey)
+	if browser.refCount > 0 {
+		f.mu.Unlock()
+		return
 	}
+
+	browser.refCount = 0
+	browser.lastReleasedAt = time.Now()
+	releasedAt := browser.lastReleasedAt
+	f.mu.Unlock()
+
+	go f.closeIdleBrowser(proxyKey, releasedAt)
 }
 
 func (f *Factory) Close() error {
@@ -143,13 +155,32 @@ func (f *Factory) Close() error {
 
 	var firstErr error
 	for key, browser := range f.browsers {
-		if err := browser.rootBrowser.Close(); err != nil && firstErr == nil {
-			firstErr = err
+		if browser.rootBrowser != nil {
+			if err := browser.rootBrowser.Close(); err != nil && firstErr == nil {
+				firstErr = err
+			}
 		}
 		delete(f.browsers, key)
 	}
 
 	return firstErr
+}
+
+func (f *Factory) closeIdleBrowser(proxyKey string, releasedAt time.Time) {
+	time.Sleep(f.idleTTL)
+
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	browser := f.browsers[proxyKey]
+	if browser == nil || browser.refCount > 0 || !browser.lastReleasedAt.Equal(releasedAt) {
+		return
+	}
+
+	if browser.rootBrowser != nil {
+		_ = browser.rootBrowser.Close()
+	}
+	delete(f.browsers, proxyKey)
 }
 
 func (f *Factory) launchRootBrowser(proxyURL string) (*rod.Browser, error) {
