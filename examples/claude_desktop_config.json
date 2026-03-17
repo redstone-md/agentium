@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agentium": {
+      "command": "D:\\code\\Agentium\\agentium.exe",
+      "args": [
+        "-mode",
+        "mcp-stdio"
+      ]
+    }
+  }
+}
