@@ -47,6 +47,12 @@ func TestResolverUsesBrowserUserAgentWhenRequestOmitsIt(t *testing.T) {
 	if profile.UserAgentMetadata == nil || profile.UserAgentMetadata.Platform != "macOS" {
 		t.Fatal("expected user agent metadata to match macOS")
 	}
+	if profile.WebGLRenderer != "Intel Iris OpenGL Engine" {
+		t.Fatalf("expected macOS renderer, got %q", profile.WebGLRenderer)
+	}
+	if profile.ScreenWidth == 0 || profile.ScreenHeight == 0 {
+		t.Fatal("expected hardware template to populate screen dimensions")
+	}
 }
 
 func TestResolverHonorsExplicitOverrides(t *testing.T) {
@@ -75,5 +81,11 @@ func TestResolverHonorsExplicitOverrides(t *testing.T) {
 	}
 	if profile.Platform != "Win32" {
 		t.Fatalf("expected Win32 platform, got %q", profile.Platform)
+	}
+	if profile.WebGLVendor != "Google Inc. (Intel)" {
+		t.Fatalf("expected windows webgl vendor, got %q", profile.WebGLVendor)
+	}
+	if profile.DeviceScaleFactor != 1 {
+		t.Fatalf("expected windows device scale factor 1, got %v", profile.DeviceScaleFactor)
 	}
 }

@@ -14,6 +14,17 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 		"userAgent":           profile.UserAgent,
 		"platform":            profile.Platform,
 		"vendor":              profile.Vendor,
+		"webglVendor":         profile.WebGLVendor,
+		"webglRenderer":       profile.WebGLRenderer,
+		"viewportWidth":       profile.ViewportWidth,
+		"viewportHeight":      profile.ViewportHeight,
+		"screenWidth":         profile.ScreenWidth,
+		"screenHeight":        profile.ScreenHeight,
+		"availWidth":          profile.AvailWidth,
+		"availHeight":         profile.AvailHeight,
+		"deviceScaleFactor":   profile.DeviceScaleFactor,
+		"colorDepth":          profile.ColorDepth,
+		"pixelDepth":          profile.PixelDepth,
 		"languages":           profile.Languages,
 		"language":            firstLanguage(profile.Languages),
 		"hardwareConcurrency": profile.HardwareConcurrency,
@@ -136,6 +147,50 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 			window.RTCPeerConnection = WrappedPeerConnection;
 			window.webkitRTCPeerConnection = WrappedPeerConnection;
 		};
+		const patchWebGL = () => {
+			const patchContext = (ctor) => {
+				if (!ctor || !ctor.prototype || typeof ctor.prototype.getParameter !== 'function') {
+					return;
+				}
+				const nativeGetParameter = ctor.prototype.getParameter;
+				Object.defineProperty(ctor.prototype, 'getParameter', {
+					value: function(parameter) {
+						if (parameter === 37445) {
+							return profile.webglVendor;
+						}
+						if (parameter === 37446) {
+							return profile.webglRenderer;
+						}
+						return nativeGetParameter.apply(this, arguments);
+					},
+					configurable: true
+				});
+			};
+			patchContext(window.WebGLRenderingContext);
+			patchContext(window.WebGL2RenderingContext);
+		};
+		const patchScreen = () => {
+			const overrideScreenValue = (key, value) => {
+				try {
+					Object.defineProperty(window.screen, key, { get: () => value, configurable: true });
+				} catch (_) {}
+				try {
+					const screenProto = Object.getPrototypeOf(window.screen);
+					Object.defineProperty(screenProto, key, { get: () => value, configurable: true });
+				} catch (_) {}
+			};
+			overrideScreenValue('width', profile.screenWidth);
+			overrideScreenValue('height', profile.screenHeight);
+			overrideScreenValue('availWidth', profile.availWidth);
+			overrideScreenValue('availHeight', profile.availHeight);
+			overrideScreenValue('colorDepth', profile.colorDepth);
+			overrideScreenValue('pixelDepth', profile.pixelDepth);
+			define(window, 'innerWidth', profile.viewportWidth || profile.screenWidth);
+			define(window, 'innerHeight', profile.viewportHeight || profile.availHeight);
+			define(window, 'outerWidth', profile.viewportWidth || profile.screenWidth);
+			define(window, 'outerHeight', profile.viewportHeight || profile.availHeight);
+			define(window, 'devicePixelRatio', profile.deviceScaleFactor);
+		};
 		overrideNavigatorValue('platform', profile.platform);
 		overrideNavigatorValue('userAgent', profile.userAgent);
 		overrideNavigatorValue('vendor', profile.vendor);
@@ -147,6 +202,8 @@ func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
 		overrideNavigatorValue('userAgentData', createUserAgentData(profile.userAgentData));
 		removeWebdriver();
 		patchWebRTC();
+		patchWebGL();
+		patchScreen();
 	})();`, payload)
 
 	if _, err := (proto.PageAddScriptToEvaluateOnNewDocument{

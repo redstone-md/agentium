@@ -1,6 +1,7 @@
 package fingerprint
 
 import (
+	"hash/fnv"
 	"regexp"
 	"strings"
 
@@ -18,6 +19,17 @@ type Profile struct {
 	UserAgent           string
 	Platform            string
 	Vendor              string
+	WebGLVendor         string
+	WebGLRenderer       string
+	ViewportWidth       int
+	ViewportHeight      int
+	ScreenWidth         int
+	ScreenHeight        int
+	AvailWidth          int
+	AvailHeight         int
+	DeviceScaleFactor   float64
+	ColorDepth          int
+	PixelDepth          int
 	Locale              string
 	Languages           []string
 	AcceptLanguage      string
@@ -74,6 +86,8 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent string
 		UserAgent:           effectiveUA,
 		Platform:            uaProfile.NavigatorPlatform,
 		Vendor:              uaProfile.Vendor,
+		WebGLVendor:         uaProfile.WebGLVendor,
+		WebGLRenderer:       uaProfile.WebGLRenderer,
 		Locale:              locale,
 		Languages:           languages,
 		AcceptLanguage:      strings.Join(languages, ","),
@@ -83,6 +97,16 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent string
 		MaxTouchPoints:      0,
 		UserAgentMetadata:   uaProfile.Metadata,
 	}
+	template := selectHardwareTemplate(uaProfile.OSFamily, stableSeed(options.Proxy+"|"+effectiveUA+"|"+locale+"|"+timezoneID))
+	profile.ViewportWidth = template.ViewportWidth
+	profile.ViewportHeight = template.ViewportHeight
+	profile.ScreenWidth = template.ScreenWidth
+	profile.ScreenHeight = template.ScreenHeight
+	profile.AvailWidth = template.AvailWidth
+	profile.AvailHeight = template.AvailHeight
+	profile.DeviceScaleFactor = template.DeviceScaleFactor
+	profile.ColorDepth = template.ColorDepth
+	profile.PixelDepth = template.PixelDepth
 
 	if geo.HasLocation() {
 		profile.Geolocation = &Geolocation{
@@ -98,7 +122,10 @@ func (r *Resolver) Resolve(options model.SessionOptions, browserUserAgent string
 type uaProfile struct {
 	NavigatorPlatform string
 	Vendor            string
+	WebGLVendor       string
+	WebGLRenderer     string
 	Metadata          *proto.EmulationUserAgentMetadata
+	OSFamily          string
 }
 
 var (
@@ -116,16 +143,25 @@ func parseUserAgent(userAgent string) uaProfile {
 	architecture := "x86"
 	bitness := "64"
 	mobile := strings.Contains(userAgent, "Mobile")
+	webGLVendor := "Google Inc. (Intel)"
+	webGLRenderer := "ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)"
+	osFamily := "windows"
 
 	switch {
 	case strings.Contains(userAgent, "Macintosh"):
 		platform = "macOS"
 		navigatorPlatform = "MacIntel"
 		platformVersion = normalizePlatformVersion(findMatch(macOSVersionPattern, userAgent, 1), "10.15.7")
+		webGLVendor = "Intel Inc."
+		webGLRenderer = "Intel Iris OpenGL Engine"
+		osFamily = "mac"
 	case strings.Contains(userAgent, "Linux"):
 		platform = "Linux"
 		navigatorPlatform = "Linux x86_64"
 		platformVersion = "6.1.0"
+		webGLVendor = "Google Inc. (Intel)"
+		webGLRenderer = "ANGLE (Intel, Mesa Intel(R) UHD Graphics 620 (KBL GT2), OpenGL 4.6)"
+		osFamily = "linux"
 	case strings.Contains(userAgent, "Windows"):
 		platformVersion = normalizePlatformVersion(findMatch(windowsVersionPattern, userAgent, 1), "10.0.0")
 	}
@@ -149,7 +185,10 @@ func parseUserAgent(userAgent string) uaProfile {
 	return uaProfile{
 		NavigatorPlatform: navigatorPlatform,
 		Vendor:            "Google Inc.",
+		WebGLVendor:       webGLVendor,
+		WebGLRenderer:     webGLRenderer,
 		Metadata:          metadata,
+		OSFamily:          osFamily,
 	}
 }
 
@@ -215,4 +254,53 @@ func findMatch(pattern *regexp.Regexp, value string, group int) string {
 		return ""
 	}
 	return matches[group]
+}
+
+type hardwareTemplate struct {
+	ViewportWidth     int
+	ViewportHeight    int
+	ScreenWidth       int
+	ScreenHeight      int
+	AvailWidth        int
+	AvailHeight       int
+	DeviceScaleFactor float64
+	ColorDepth        int
+	PixelDepth        int
+}
+
+var windowsTemplates = []hardwareTemplate{
+	{ViewportWidth: 1365, ViewportHeight: 728, ScreenWidth: 1366, ScreenHeight: 768, AvailWidth: 1366, AvailHeight: 728, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
+	{ViewportWidth: 1536, ViewportHeight: 824, ScreenWidth: 1536, ScreenHeight: 864, AvailWidth: 1536, AvailHeight: 824, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
+	{ViewportWidth: 1600, ViewportHeight: 860, ScreenWidth: 1600, ScreenHeight: 900, AvailWidth: 1600, AvailHeight: 860, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
+	{ViewportWidth: 1920, ViewportHeight: 1040, ScreenWidth: 1920, ScreenHeight: 1080, AvailWidth: 1920, AvailHeight: 1040, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
+}
+
+var macTemplates = []hardwareTemplate{
+	{ViewportWidth: 1440, ViewportHeight: 860, ScreenWidth: 1440, ScreenHeight: 900, AvailWidth: 1440, AvailHeight: 860, DeviceScaleFactor: 2, ColorDepth: 24, PixelDepth: 24},
+	{ViewportWidth: 1512, ViewportHeight: 945, ScreenWidth: 1512, ScreenHeight: 982, AvailWidth: 1512, AvailHeight: 945, DeviceScaleFactor: 2, ColorDepth: 24, PixelDepth: 24},
+	{ViewportWidth: 1680, ViewportHeight: 1010, ScreenWidth: 1680, ScreenHeight: 1050, AvailWidth: 1680, AvailHeight: 1010, DeviceScaleFactor: 2, ColorDepth: 24, PixelDepth: 24},
+}
+
+var linuxTemplates = []hardwareTemplate{
+	{ViewportWidth: 1365, ViewportHeight: 728, ScreenWidth: 1366, ScreenHeight: 768, AvailWidth: 1366, AvailHeight: 728, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
+	{ViewportWidth: 1600, ViewportHeight: 860, ScreenWidth: 1600, ScreenHeight: 900, AvailWidth: 1600, AvailHeight: 860, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
+	{ViewportWidth: 1920, ViewportHeight: 1040, ScreenWidth: 1920, ScreenHeight: 1080, AvailWidth: 1920, AvailHeight: 1040, DeviceScaleFactor: 1, ColorDepth: 24, PixelDepth: 24},
+}
+
+func selectHardwareTemplate(osFamily string, seed uint32) hardwareTemplate {
+	templates := windowsTemplates
+	switch osFamily {
+	case "mac":
+		templates = macTemplates
+	case "linux":
+		templates = linuxTemplates
+	}
+
+	return templates[int(seed)%len(templates)]
+}
+
+func stableSeed(value string) uint32 {
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(value))
+	return hasher.Sum32()
 }

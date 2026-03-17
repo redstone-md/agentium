@@ -63,18 +63,6 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 		return nil, fmt.Errorf("create page: %w", err)
 	}
 
-	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
-		Width:             f.config.DefaultWidth,
-		Height:            f.config.DefaultHeight,
-		DeviceScaleFactor: 1,
-		Mobile:            false,
-	}); err != nil {
-		_ = page.Close()
-		_ = contextBrowser.Close()
-		f.releaseRootBrowser(proxyKey)
-		return nil, fmt.Errorf("set viewport: %w", err)
-	}
-
 	browserVersion, err := rootBrowser.Version()
 	if err != nil {
 		_ = page.Close()
@@ -89,6 +77,41 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 		_ = contextBrowser.Close()
 		f.releaseRootBrowser(proxyKey)
 		return nil, fmt.Errorf("resolve browser profile: %w", err)
+	}
+
+	width := profile.ViewportWidth
+	height := profile.ViewportHeight
+	if width == 0 {
+		width = f.config.DefaultWidth
+	}
+	if height == 0 {
+		height = f.config.DefaultHeight
+	}
+	scaleFactor := profile.DeviceScaleFactor
+	if scaleFactor <= 0 {
+		scaleFactor = 1
+	}
+	screenWidth := profile.ScreenWidth
+	screenHeight := profile.ScreenHeight
+	if screenWidth == 0 {
+		screenWidth = width
+	}
+	if screenHeight == 0 {
+		screenHeight = height
+	}
+
+	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
+		Width:             width,
+		Height:            height,
+		DeviceScaleFactor: scaleFactor,
+		Mobile:            false,
+		ScreenWidth:       &screenWidth,
+		ScreenHeight:      &screenHeight,
+	}); err != nil {
+		_ = page.Close()
+		_ = contextBrowser.Close()
+		f.releaseRootBrowser(proxyKey)
+		return nil, fmt.Errorf("set viewport: %w", err)
 	}
 
 	if err := applyPageEmulation(page, profile); err != nil {
