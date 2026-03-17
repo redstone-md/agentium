@@ -47,6 +47,10 @@ try {
   "=== Initial Snapshot ==="
   $snapshot | ConvertTo-Json -Depth 8
 
+  $pageText = Invoke-RestMethod -Uri "$BaseUrl/v1/sessions/$sessionId/text" -Method Get
+  "=== Initial Page Text ==="
+  $pageText | ConvertTo-Json -Depth 8
+
   $decline = $snapshot.elements | Where-Object { $_.text -eq "Do not consent" } | Select-Object -First 1
   if (-not $decline) {
     throw "Could not find Do not consent button"
@@ -66,6 +70,10 @@ try {
   $postClickSnapshot = Invoke-RestMethod -Uri "$BaseUrl/v1/sessions/$sessionId/snapshot" -Method Get
   "=== Post Click Snapshot ==="
   $postClickSnapshot | ConvertTo-Json -Depth 8
+
+  $postClickPageText = Invoke-RestMethod -Uri "$BaseUrl/v1/sessions/$sessionId/text" -Method Get
+  "=== Post Click Page Text ==="
+  $postClickPageText | ConvertTo-Json -Depth 8
 }
 finally {
   Invoke-RestMethod -Uri "$BaseUrl/v1/sessions/$sessionId" -Method Delete | Out-Null

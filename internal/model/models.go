@@ -37,6 +37,12 @@ type Snapshot struct {
 	Elements []SnapshotElement `json:"elements"`
 }
 
+type PageText struct {
+	URL   string `json:"url"`
+	Title string `json:"title"`
+	Text  string `json:"text"`
+}
+
 type ActionType string
 
 const (

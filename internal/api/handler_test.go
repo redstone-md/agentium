@@ -17,6 +17,7 @@ import (
 type stubService struct {
 	createSession func(context.Context, model.SessionOptions) (string, error)
 	closeSession  func(context.Context, string) error
+	getPageText   func(context.Context, string) (model.PageText, error)
 	getSnapshot   func(context.Context, string) (model.Snapshot, error)
 	performAction func(context.Context, string, model.ActionRequest) (model.ActionResult, error)
 	close         func() error
@@ -32,6 +33,10 @@ func (s stubService) CloseSession(ctx context.Context, sessionID string) error {
 
 func (s stubService) GetSnapshot(ctx context.Context, sessionID string) (model.Snapshot, error) {
 	return s.getSnapshot(ctx, sessionID)
+}
+
+func (s stubService) GetPageText(ctx context.Context, sessionID string) (model.PageText, error) {
+	return s.getPageText(ctx, sessionID)
 }
 
 func (s stubService) PerformAction(ctx context.Context, sessionID string, input model.ActionRequest) (model.ActionResult, error) {
@@ -55,6 +60,7 @@ func TestCreateSession(t *testing.T) {
 			return "session-123", nil
 		},
 		closeSession: func(context.Context, string) error { return nil },
+		getPageText:  func(context.Context, string) (model.PageText, error) { return model.PageText{}, nil },
 		getSnapshot:  func(context.Context, string) (model.Snapshot, error) { return model.Snapshot{}, nil },
 		performAction: func(context.Context, string, model.ActionRequest) (model.ActionResult, error) {
 			return model.ActionResult{}, nil
@@ -88,6 +94,7 @@ func TestGetSnapshotNotFound(t *testing.T) {
 	handler := NewHandler(stubService{
 		createSession: func(context.Context, model.SessionOptions) (string, error) { return "", nil },
 		closeSession:  func(context.Context, string) error { return nil },
+		getPageText:   func(context.Context, string) (model.PageText, error) { return model.PageText{}, nil },
 		getSnapshot: func(context.Context, string) (model.Snapshot, error) {
 			return model.Snapshot{}, session.ErrSessionNotFound
 		},
@@ -112,6 +119,7 @@ func TestPerformActionBadRequest(t *testing.T) {
 	handler := NewHandler(stubService{
 		createSession: func(context.Context, model.SessionOptions) (string, error) { return "", nil },
 		closeSession:  func(context.Context, string) error { return nil },
+		getPageText:   func(context.Context, string) (model.PageText, error) { return model.PageText{}, nil },
 		getSnapshot:   func(context.Context, string) (model.Snapshot, error) { return model.Snapshot{}, nil },
 		performAction: func(context.Context, string, model.ActionRequest) (model.ActionResult, error) {
 			return model.ActionResult{}, errors.New("action is invalid")
@@ -136,6 +144,7 @@ func TestHealthz(t *testing.T) {
 	handler := NewHandler(stubService{
 		createSession: func(context.Context, model.SessionOptions) (string, error) { return "", nil },
 		closeSession:  func(context.Context, string) error { return nil },
+		getPageText:   func(context.Context, string) (model.PageText, error) { return model.PageText{}, nil },
 		getSnapshot:   func(context.Context, string) (model.Snapshot, error) { return model.Snapshot{}, nil },
 		performAction: func(context.Context, string, model.ActionRequest) (model.ActionResult, error) {
 			return model.ActionResult{}, nil
@@ -150,5 +159,47 @@ func TestHealthz(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+}
+
+func TestGetPageText(t *testing.T) {
+	e := echo.New()
+	handler := NewHandler(stubService{
+		createSession: func(context.Context, model.SessionOptions) (string, error) { return "", nil },
+		closeSession:  func(context.Context, string) error { return nil },
+		getPageText: func(_ context.Context, sessionID string) (model.PageText, error) {
+			if sessionID != "s1" {
+				t.Fatalf("unexpected session id: %q", sessionID)
+			}
+
+			return model.PageText{
+				URL:   "https://example.com",
+				Title: "Example",
+				Text:  "Example Domain",
+			}, nil
+		},
+		getSnapshot: func(context.Context, string) (model.Snapshot, error) { return model.Snapshot{}, nil },
+		performAction: func(context.Context, string, model.ActionRequest) (model.ActionResult, error) {
+			return model.ActionResult{}, nil
+		},
+	})
+	handler.Register(e)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/sessions/s1/text", nil)
+	rec := httptest.NewRecorder()
+
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var payload model.PageText
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if payload.Text != "Example Domain" {
+		t.Fatalf("unexpected page text: %q", payload.Text)
 	}
 }

@@ -26,6 +26,7 @@ func (h *Handler) Register(e *echo.Echo) {
 	v1 := e.Group("/v1")
 	v1.POST("/sessions", h.createSession)
 	v1.DELETE("/sessions/:session_id", h.closeSession)
+	v1.GET("/sessions/:session_id/text", h.getPageText)
 	v1.GET("/sessions/:session_id/snapshot", h.getSnapshot)
 	v1.POST("/sessions/:session_id/action", h.performAction)
 }
@@ -54,6 +55,15 @@ func (h *Handler) closeSession(c echo.Context) error {
 
 func (h *Handler) getSnapshot(c echo.Context) error {
 	result, err := h.service.GetSnapshot(c.Request().Context(), c.Param("session_id"))
+	if err != nil {
+		return mapError(c, err)
+	}
+
+	return c.JSON(http.StatusOK, result)
+}
+
+func (h *Handler) getPageText(c echo.Context) error {
+	result, err := h.service.GetPageText(c.Request().Context(), c.Param("session_id"))
 	if err != nil {
 		return mapError(c, err)
 	}

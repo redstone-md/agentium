@@ -9,6 +9,7 @@ import (
 	"agentium/internal/browser"
 	"agentium/internal/config"
 	"agentium/internal/model"
+	"agentium/internal/pagetext"
 	"agentium/internal/session"
 	"agentium/internal/snapshot"
 	"agentium/internal/validation"
@@ -17,6 +18,7 @@ import (
 type Service struct {
 	manager  *session.Manager
 	factory  *browser.Factory
+	pageText *pagetext.Service
 	snapshot *snapshot.Service
 	actions  *action.Service
 }
@@ -24,6 +26,7 @@ type Service struct {
 type AgentiumService interface {
 	CreateSession(ctx context.Context, options model.SessionOptions) (string, error)
 	CloseSession(ctx context.Context, sessionID string) error
+	GetPageText(ctx context.Context, sessionID string) (model.PageText, error)
 	GetSnapshot(ctx context.Context, sessionID string) (model.Snapshot, error)
 	PerformAction(ctx context.Context, sessionID string, input model.ActionRequest) (model.ActionResult, error)
 	Close() error
@@ -33,6 +36,7 @@ func NewService(cfg config.Config) *Service {
 	return &Service{
 		manager:  session.NewManager(),
 		factory:  browser.NewFactory(cfg),
+		pageText: pagetext.NewService(),
 		snapshot: snapshot.NewService(),
 		actions:  action.NewService(time.Now().UnixNano()),
 	}
@@ -63,6 +67,28 @@ func (s *Service) CloseSession(_ context.Context, sessionID string) error {
 	}
 
 	return nil
+}
+
+func (s *Service) GetPageText(_ context.Context, sessionID string) (model.PageText, error) {
+	runtime, err := s.manager.Get(sessionID)
+	if err != nil {
+		return model.PageText{}, err
+	}
+
+	var result model.PageText
+	err = runtime.WithLock(func() error {
+		pageText, captureErr := s.pageText.Capture(runtime)
+		if captureErr != nil {
+			return captureErr
+		}
+		result = pageText
+		return nil
+	})
+	if err != nil {
+		return model.PageText{}, err
+	}
+
+	return result, nil
 }
 
 func (s *Service) GetSnapshot(_ context.Context, sessionID string) (model.Snapshot, error) {
