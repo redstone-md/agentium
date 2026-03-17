@@ -65,6 +65,23 @@ const DistillScript = `
   const items = [];
   const candidates = [];
 
+  const hasRelevantChild = (el) => {
+    for (const child of el.children) {
+      if (!(child instanceof HTMLElement)) continue;
+
+      const rect = child.getBoundingClientRect();
+      if (!isVisible(child, rect)) continue;
+
+      const role = roleFor(child);
+      const text = readableText(child);
+      if (text || interactable(child, role)) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
   const scoreFor = (el, role, text, canInteract, rect) => {
     let score = 0;
     if (canInteract) score += 1000;
@@ -95,6 +112,7 @@ const DistillScript = `
     const text = readableText(el);
     const canInteract = interactable(el, role);
     if (!text && !canInteract) continue;
+    if (!canInteract && hasRelevantChild(el)) continue;
 
     candidates.push({
       el,
