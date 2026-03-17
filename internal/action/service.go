@@ -65,14 +65,14 @@ func (s *Service) Execute(runtime *session.Runtime, input model.ActionRequest) (
 }
 
 func (s *Service) click(runtime *session.Runtime, refID int) error {
-	element, err := runtime.Page.Element(fmt.Sprintf(`[agentium-id="%d"]`, refID))
-	if err != nil {
-		return fmt.Errorf("find element: %w", err)
-	}
-
 	target, ok := runtime.Ref(refID)
 	if !ok {
 		return errors.New("ref_id is stale, request a new snapshot")
+	}
+
+	element, ok := runtime.Element(refID)
+	if !ok {
+		return errors.New("ref_id has no cached element, request a new snapshot")
 	}
 
 	if err := element.ScrollIntoView(); err != nil {
@@ -91,9 +91,9 @@ func (s *Service) click(runtime *session.Runtime, refID int) error {
 }
 
 func (s *Service) fill(runtime *session.Runtime, refID int, value string) error {
-	element, err := runtime.Page.Element(fmt.Sprintf(`[agentium-id="%d"]`, refID))
-	if err != nil {
-		return fmt.Errorf("find element: %w", err)
+	element, ok := runtime.Element(refID)
+	if !ok {
+		return errors.New("ref_id has no cached element, request a new snapshot")
 	}
 
 	if err := element.Focus(); err != nil {
@@ -110,9 +110,9 @@ func (s *Service) fill(runtime *session.Runtime, refID int, value string) error 
 }
 
 func (s *Service) typeText(runtime *session.Runtime, refID int, value string, delayMS int) error {
-	element, err := runtime.Page.Element(fmt.Sprintf(`[agentium-id="%d"]`, refID))
-	if err != nil {
-		return fmt.Errorf("find element: %w", err)
+	element, ok := runtime.Element(refID)
+	if !ok {
+		return errors.New("ref_id has no cached element, request a new snapshot")
 	}
 
 	if err := element.Focus(); err != nil {
@@ -164,11 +164,18 @@ func (s *Service) scrollTo(runtime *session.Runtime, refID int, delayMS int) err
 
 func (s *Service) moveMouse(runtime *session.Runtime, x, y float64) error {
 	fromX, fromY := runtime.MousePosition()
-	for _, point := range s.mousePath.Build(humanize.Point{X: fromX, Y: fromY}, humanize.Point{X: x, Y: y}) {
+	path := s.mousePath.Build(humanize.Point{X: fromX, Y: fromY}, humanize.Point{X: x, Y: y})
+	totalDuration := time.Duration(200+s.rng.Intn(601)) * time.Millisecond
+	stepDelay := totalDuration / time.Duration(len(path))
+	if stepDelay < 5*time.Millisecond {
+		stepDelay = 5 * time.Millisecond
+	}
+
+	for _, point := range path {
 		if err := runtime.Page.Mouse.MoveTo(proto.Point{X: point.X, Y: point.Y}); err != nil {
 			return fmt.Errorf("move mouse: %w", err)
 		}
-		time.Sleep(12 * time.Millisecond)
+		time.Sleep(stepDelay)
 	}
 	runtime.SetMousePosition(x, y)
 	return nil

@@ -18,9 +18,14 @@ type Runtime struct {
 
 	actionMu sync.Mutex
 	stateMu  sync.RWMutex
-	refs     map[int]model.SnapshotElement
+	refs     map[int]cachedRef
 	mouse    point
 	close    func() error
+}
+
+type cachedRef struct {
+	meta    model.SnapshotElement
+	element *rod.Element
 }
 
 type point struct {
@@ -44,19 +49,22 @@ func NewRuntime(
 		ContextBrowser: contextBrowser,
 		Page:           page,
 		Tracker:        tracker,
-		refs:           make(map[int]model.SnapshotElement),
+		refs:           make(map[int]cachedRef),
 		mouse:          point{X: 8, Y: 8},
 		close:          closeFn,
 	}
 }
 
-func (r *Runtime) UpdateRefs(elements []model.SnapshotElement) {
+func (r *Runtime) UpdateRefs(elements []model.SnapshotElement, elementMap map[int]*rod.Element) {
 	r.stateMu.Lock()
 	defer r.stateMu.Unlock()
 
-	r.refs = make(map[int]model.SnapshotElement, len(elements))
+	r.refs = make(map[int]cachedRef, len(elements))
 	for _, element := range elements {
-		r.refs[element.RefID] = element
+		r.refs[element.RefID] = cachedRef{
+			meta:    element,
+			element: elementMap[element.RefID],
+		}
 	}
 }
 
@@ -64,8 +72,20 @@ func (r *Runtime) Ref(refID int) (model.SnapshotElement, bool) {
 	r.stateMu.RLock()
 	defer r.stateMu.RUnlock()
 
-	element, ok := r.refs[refID]
-	return element, ok
+	ref, ok := r.refs[refID]
+	return ref.meta, ok
+}
+
+func (r *Runtime) Element(refID int) (*rod.Element, bool) {
+	r.stateMu.RLock()
+	defer r.stateMu.RUnlock()
+
+	ref, ok := r.refs[refID]
+	if !ok || ref.element == nil {
+		return nil, false
+	}
+
+	return ref.element, true
 }
 
 func (r *Runtime) MousePosition() (float64, float64) {

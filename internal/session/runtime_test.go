@@ -9,7 +9,7 @@ import (
 
 func TestWithLockAllowsReadingCachedState(t *testing.T) {
 	runtime := NewRuntime("id", model.SessionOptions{}, nil, nil, nil, nil, nil)
-	runtime.UpdateRefs([]model.SnapshotElement{{RefID: 1, Text: "button"}})
+	runtime.UpdateRefs([]model.SnapshotElement{{RefID: 1, Text: "button"}}, nil)
 
 	done := make(chan struct{})
 	go func() {
