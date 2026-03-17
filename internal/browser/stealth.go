@@ -1,32 +1,32 @@
 package browser
 
 import (
+	"encoding/json"
 	"fmt"
-	"strings"
 
+	"agentium/internal/fingerprint"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
 )
 
-type OverrideProfile struct {
-	Platform            string
-	Languages           []string
-	HardwareConcurrency int
-	DeviceMemory        int
-}
-
-func ApplyStealth(page *rod.Page, userAgent, locale string) error {
-	profile := inferOverrideProfile(userAgent, locale)
-	languages := "['en-US','en']"
-	if len(profile.Languages) > 0 {
-		quoted := make([]string, 0, len(profile.Languages))
-		for _, language := range profile.Languages {
-			quoted = append(quoted, fmt.Sprintf("'%s'", language))
-		}
-		languages = "[" + strings.Join(quoted, ",") + "]"
+func ApplyStealth(page *rod.Page, profile fingerprint.Profile) error {
+	payload, err := json.Marshal(map[string]any{
+		"userAgent":           profile.UserAgent,
+		"platform":            profile.Platform,
+		"vendor":              profile.Vendor,
+		"languages":           profile.Languages,
+		"language":            firstLanguage(profile.Languages),
+		"hardwareConcurrency": profile.HardwareConcurrency,
+		"deviceMemory":        profile.DeviceMemory,
+		"maxTouchPoints":      profile.MaxTouchPoints,
+		"userAgentData":       buildUserAgentData(profile),
+	})
+	if err != nil {
+		return fmt.Errorf("marshal stealth profile: %w", err)
 	}
 
 	script := fmt.Sprintf(`(() => {
+		const profile = %s;
 		const define = (target, key, value) => {
 			Object.defineProperty(target, key, { get: () => value, configurable: true });
 		};
@@ -52,22 +52,102 @@ func ApplyStealth(page *rod.Page, userAgent, locale string) error {
 				} catch (_) {}
 			}
 		};
-		overrideNavigatorValue('platform', %q);
-		overrideNavigatorValue('hardwareConcurrency', %d);
-		overrideNavigatorValue('deviceMemory', %d);
-		overrideNavigatorValue('languages', %s);
-		removeWebdriver();
-		if (window.RTCPeerConnection) {
-			window.RTCPeerConnection = class BlockedPeerConnection {
-				constructor() {
-					throw new Error('WebRTC disabled by Agentium');
-				}
+		const createUserAgentData = (data) => {
+			const lowEntropy = {
+				brands: data.brands || [],
+				mobile: !!data.mobile,
+				platform: data.platform || ''
 			};
-		}
-		if (window.webkitRTCPeerConnection) {
-			window.webkitRTCPeerConnection = window.RTCPeerConnection;
-		}
-	})();`, profile.Platform, profile.HardwareConcurrency, profile.DeviceMemory, languages)
+			const highEntropy = {
+				architecture: data.architecture || '',
+				bitness: data.bitness || '',
+				brands: data.brands || [],
+				fullVersionList: data.fullVersionList || [],
+				mobile: !!data.mobile,
+				model: data.model || '',
+				platform: data.platform || '',
+				platformVersion: data.platformVersion || '',
+				uaFullVersion: data.uaFullVersion || ''
+			};
+			return {
+				...lowEntropy,
+				getHighEntropyValues: async (hints) => {
+					const result = {};
+					for (const hint of hints) {
+						if (Object.prototype.hasOwnProperty.call(highEntropy, hint)) {
+							result[hint] = highEntropy[hint];
+						}
+					}
+					return result;
+				},
+				toJSON: () => ({ ...lowEntropy })
+			};
+		};
+		const patchWebRTC = () => {
+			const NativePeerConnection = window.RTCPeerConnection || window.webkitRTCPeerConnection;
+			if (!NativePeerConnection) {
+				return;
+			}
+			const sanitizeSDP = (sdp) => {
+				if (!sdp) {
+					return sdp;
+				}
+				return sdp
+					.split('\n')
+					.filter((line) => !line.includes(' typ host '))
+					.join('\n');
+			};
+			const wrapDescription = (description) => {
+				if (!description || !description.sdp) {
+					return description;
+				}
+				return {
+					type: description.type,
+					sdp: sanitizeSDP(description.sdp)
+				};
+			};
+			const WrappedPeerConnection = function(config, constraints) {
+				const safeConfig = Object.assign({}, config || {});
+				safeConfig.iceServers = Array.isArray(safeConfig.iceServers) ? safeConfig.iceServers : [];
+				safeConfig.iceTransportPolicy = safeConfig.iceTransportPolicy || 'relay';
+				const peer = new NativePeerConnection(safeConfig, constraints);
+				const nativeAddEventListener = peer.addEventListener.bind(peer);
+				peer.addEventListener = (type, listener, options) => {
+					if (type !== 'icecandidate') {
+						return nativeAddEventListener(type, listener, options);
+					}
+					return nativeAddEventListener(type, (event) => {
+						if (event && event.candidate && event.candidate.candidate && event.candidate.candidate.includes(' typ host ')) {
+							listener.call(peer, new Event('icecandidate'));
+							return;
+						}
+						listener.call(peer, event);
+					}, options);
+				};
+				const nativeSetLocalDescription = peer.setLocalDescription.bind(peer);
+				peer.setLocalDescription = async (description) => nativeSetLocalDescription(wrapDescription(description));
+				const nativeCreateOffer = peer.createOffer.bind(peer);
+				peer.createOffer = async (...args) => wrapDescription(await nativeCreateOffer(...args));
+				const nativeCreateAnswer = peer.createAnswer.bind(peer);
+				peer.createAnswer = async (...args) => wrapDescription(await nativeCreateAnswer(...args));
+				return peer;
+			};
+			WrappedPeerConnection.prototype = NativePeerConnection.prototype;
+			window.RTCPeerConnection = WrappedPeerConnection;
+			window.webkitRTCPeerConnection = WrappedPeerConnection;
+		};
+		overrideNavigatorValue('platform', profile.platform);
+		overrideNavigatorValue('userAgent', profile.userAgent);
+		overrideNavigatorValue('vendor', profile.vendor);
+		overrideNavigatorValue('language', profile.language);
+		overrideNavigatorValue('languages', profile.languages);
+		overrideNavigatorValue('hardwareConcurrency', profile.hardwareConcurrency);
+		overrideNavigatorValue('deviceMemory', profile.deviceMemory);
+		overrideNavigatorValue('maxTouchPoints', profile.maxTouchPoints);
+		overrideNavigatorValue('userAgentData', createUserAgentData(profile.userAgentData));
+		removeWebdriver();
+		patchWebRTC();
+	})();`, payload)
 
 	if _, err := (proto.PageAddScriptToEvaluateOnNewDocument{
 		Source:         script,
@@ -79,29 +159,49 @@ func ApplyStealth(page *rod.Page, userAgent, locale string) error {
 	return nil
 }
 
-func inferOverrideProfile(userAgent, locale string) OverrideProfile {
-	languages := []string{"en-US", "en"}
-	if locale != "" {
-		primary := strings.Split(locale, "-")[0]
-		languages = []string{locale}
-		if primary != locale {
-			languages = append(languages, primary)
+func buildUserAgentData(profile fingerprint.Profile) map[string]any {
+	if profile.UserAgentMetadata == nil {
+		return map[string]any{}
+	}
+
+	brands := make([]map[string]string, 0, len(profile.UserAgentMetadata.Brands))
+	for _, brand := range profile.UserAgentMetadata.Brands {
+		if brand == nil {
+			continue
 		}
+		brands = append(brands, map[string]string{
+			"brand":   brand.Brand,
+			"version": brand.Version,
+		})
 	}
 
-	profile := OverrideProfile{
-		Platform:            "Win32",
-		Languages:           languages,
-		HardwareConcurrency: 8,
-		DeviceMemory:        8,
+	fullVersionList := make([]map[string]string, 0, len(profile.UserAgentMetadata.FullVersionList))
+	for _, brand := range profile.UserAgentMetadata.FullVersionList {
+		if brand == nil {
+			continue
+		}
+		fullVersionList = append(fullVersionList, map[string]string{
+			"brand":   brand.Brand,
+			"version": brand.Version,
+		})
 	}
 
-	switch {
-	case strings.Contains(userAgent, "Macintosh"):
-		profile.Platform = "MacIntel"
-	case strings.Contains(userAgent, "Linux"):
-		profile.Platform = "Linux x86_64"
+	return map[string]any{
+		"brands":          brands,
+		"mobile":          profile.UserAgentMetadata.Mobile,
+		"platform":        profile.UserAgentMetadata.Platform,
+		"architecture":    profile.UserAgentMetadata.Architecture,
+		"bitness":         profile.UserAgentMetadata.Bitness,
+		"model":           profile.UserAgentMetadata.Model,
+		"platformVersion": profile.UserAgentMetadata.PlatformVersion,
+		"uaFullVersion":   profile.UserAgentMetadata.FullVersion,
+		"fullVersionList": fullVersionList,
 	}
+}
 
-	return profile
+func firstLanguage(languages []string) string {
+	if len(languages) == 0 {
+		return "en-US"
+	}
+	return languages[0]
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"agentium/internal/config"
+	"agentium/internal/fingerprint"
 	"agentium/internal/model"
 	"agentium/internal/session"
 	"agentium/internal/telemetry"
@@ -19,6 +20,7 @@ import (
 
 type Factory struct {
 	config   config.Config
+	resolver *fingerprint.Resolver
 	mu       sync.Mutex
 	browsers map[string]*sharedBrowser
 	idleTTL  time.Duration
@@ -35,6 +37,7 @@ const idleBrowserTTL = 30 * time.Second
 func NewFactory(cfg config.Config) *Factory {
 	return &Factory{
 		config:   cfg,
+		resolver: fingerprint.NewResolver(fingerprint.NewGeoResolver(cfg.GeoIPEndpoint, cfg.GeoIPTimeout)),
 		browsers: make(map[string]*sharedBrowser),
 		idleTTL:  idleBrowserTTL,
 	}
@@ -72,7 +75,23 @@ func (f *Factory) Create(options model.SessionOptions) (*session.Runtime, error)
 		return nil, fmt.Errorf("set viewport: %w", err)
 	}
 
-	if err := applyPageEmulation(page, options); err != nil {
+	browserVersion, err := rootBrowser.Version()
+	if err != nil {
+		_ = page.Close()
+		_ = contextBrowser.Close()
+		f.releaseRootBrowser(proxyKey)
+		return nil, fmt.Errorf("read browser version: %w", err)
+	}
+
+	profile, err := f.resolver.Resolve(options, browserVersion.UserAgent)
+	if err != nil {
+		_ = page.Close()
+		_ = contextBrowser.Close()
+		f.releaseRootBrowser(proxyKey)
+		return nil, fmt.Errorf("resolve browser profile: %w", err)
+	}
+
+	if err := applyPageEmulation(page, profile); err != nil {
 		_ = page.Close()
 		_ = contextBrowser.Close()
 		f.releaseRootBrowser(proxyKey)
@@ -211,30 +230,68 @@ func (f *Factory) launchRootBrowser(proxyURL string) (*rod.Browser, error) {
 	return rootBrowser, nil
 }
 
-func applyPageEmulation(page *rod.Page, options model.SessionOptions) error {
-	if options.UserAgent != "" {
+func applyPageEmulation(page *rod.Page, profile fingerprint.Profile) error {
+	if profile.UserAgent != "" {
 		if err := (proto.NetworkSetUserAgentOverride{
-			UserAgent:      options.UserAgent,
-			AcceptLanguage: options.Locale,
-			Platform:       inferOverrideProfile(options.UserAgent, options.Locale).Platform,
+			UserAgent:         profile.UserAgent,
+			AcceptLanguage:    profile.AcceptLanguage,
+			Platform:          profile.Platform,
+			UserAgentMetadata: profile.UserAgentMetadata,
 		}).Call(page); err != nil {
 			return fmt.Errorf("set user agent: %w", err)
 		}
+
+		if err := (proto.EmulationSetUserAgentOverride{
+			UserAgent:         profile.UserAgent,
+			AcceptLanguage:    profile.AcceptLanguage,
+			Platform:          profile.Platform,
+			UserAgentMetadata: profile.UserAgentMetadata,
+		}).Call(page); err != nil {
+			return fmt.Errorf("set emulated user agent: %w", err)
+		}
 	}
 
-	if options.TimezoneID != "" {
-		if err := (proto.EmulationSetTimezoneOverride{TimezoneID: options.TimezoneID}).Call(page); err != nil {
+	if profile.Platform != "" {
+		if err := (proto.EmulationSetNavigatorOverrides{
+			Platform: profile.Platform,
+		}).Call(page); err != nil {
+			return fmt.Errorf("set navigator platform: %w", err)
+		}
+	}
+
+	if err := (proto.EmulationSetAutomationOverride{Enabled: false}).Call(page); err != nil {
+		return fmt.Errorf("disable automation override: %w", err)
+	}
+
+	if err := (proto.EmulationSetHardwareConcurrencyOverride{
+		HardwareConcurrency: profile.HardwareConcurrency,
+	}).Call(page); err != nil {
+		return fmt.Errorf("set hardware concurrency: %w", err)
+	}
+
+	if profile.TimezoneID != "" {
+		if err := (proto.EmulationSetTimezoneOverride{TimezoneID: profile.TimezoneID}).Call(page); err != nil {
 			return fmt.Errorf("set timezone: %w", err)
 		}
 	}
 
-	if options.Locale != "" {
-		if err := (proto.EmulationSetLocaleOverride{Locale: normalizeLocale(options.Locale)}).Call(page); err != nil {
+	if profile.Locale != "" {
+		if err := (proto.EmulationSetLocaleOverride{Locale: normalizeLocale(profile.Locale)}).Call(page); err != nil {
 			return fmt.Errorf("set locale: %w", err)
 		}
 	}
 
-	if err := ApplyStealth(page, options.UserAgent, options.Locale); err != nil {
+	if profile.Geolocation != nil {
+		if err := (proto.EmulationSetGeolocationOverride{
+			Latitude:  &profile.Geolocation.Latitude,
+			Longitude: &profile.Geolocation.Longitude,
+			Accuracy:  &profile.Geolocation.Accuracy,
+		}).Call(page); err != nil {
+			return fmt.Errorf("set geolocation: %w", err)
+		}
+	}
+
+	if err := ApplyStealth(page, profile); err != nil {
 		return err
 	}
 

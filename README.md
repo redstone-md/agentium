@@ -128,6 +128,8 @@ Stealth validation against `pixelscan.net`:
 pwsh ./scripts/run-local-stealth-pixelscan.ps1 -BinaryPath .\agentium.exe -DisableLeakless
 ```
 
+This flow leaves `locale` empty by default so Agentium can auto-sync language and timezone to the current IP profile.
+
 If the server is already running, use:
 
 ```powershell

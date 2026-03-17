@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"time"
 )
 
 type Config struct {
@@ -11,6 +12,8 @@ type Config struct {
 	DefaultWidth  int
 	DefaultHeight int
 	UseLeakless   bool
+	GeoIPEndpoint string
+	GeoIPTimeout  time.Duration
 }
 
 func Load() Config {
@@ -20,6 +23,8 @@ func Load() Config {
 		DefaultWidth:  envInt("AGENTIUM_VIEWPORT_WIDTH", 1280),
 		DefaultHeight: envInt("AGENTIUM_VIEWPORT_HEIGHT", 800),
 		UseLeakless:   envBool("AGENTIUM_LEAKLESS", true),
+		GeoIPEndpoint: env("AGENTIUM_GEOIP_ENDPOINT", "https://ipwho.is/"),
+		GeoIPTimeout:  envDurationSeconds("AGENTIUM_GEOIP_TIMEOUT_SECONDS", 8*time.Second),
 	}
 }
 
@@ -56,4 +61,18 @@ func envBool(key string, fallback bool) bool {
 	}
 
 	return parsed
+}
+
+func envDurationSeconds(key string, fallback time.Duration) time.Duration {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds <= 0 {
+		return fallback
+	}
+
+	return time.Duration(seconds) * time.Second
 }
