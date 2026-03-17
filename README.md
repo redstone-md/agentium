@@ -65,6 +65,7 @@ docker run --rm -p 8080:8080 agentium:latest
 ```
 
 The container starts `Xvfb`, launches headful Chromium inside the virtual display, and serves HTTP on port `8080`.
+The runtime image also ships extra desktop font families and generated UTF-8 locales so browser language and text rendering are closer to real regional desktop profiles.
 
 ## Smoke Tests
 
