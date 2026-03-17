@@ -122,6 +122,18 @@ If the server is already running, use:
 pwsh ./scripts/smoke-stealth-browserscan.ps1
 ```
 
+Stealth validation against `pixelscan.net`:
+
+```powershell
+pwsh ./scripts/run-local-stealth-pixelscan.ps1 -BinaryPath .\agentium.exe -DisableLeakless
+```
+
+If the server is already running, use:
+
+```powershell
+pwsh ./scripts/smoke-stealth-pixelscan.ps1
+```
+
 ## CI
 
 GitHub Actions workflow is available at [`.github/workflows/ci.yml`](D:\code\Agentium\.github\workflows\ci.yml).
