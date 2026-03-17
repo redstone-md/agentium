@@ -55,6 +55,7 @@ COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 ENV AGENTIUM_CHROME_BIN=/usr/bin/chromium
+ENV AGENTIUM_HEADLESS=false
 ENV DISPLAY=:99
 ENV LANG=en_US.UTF-8
 ENV LC_ALL=en_US.UTF-8

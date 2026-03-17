@@ -9,6 +9,7 @@ import (
 type Config struct {
 	HTTPAddr      string
 	ChromeBin     string
+	Headless      bool
 	DefaultWidth  int
 	DefaultHeight int
 	UseLeakless   bool
@@ -20,6 +21,7 @@ func Load() Config {
 	return Config{
 		HTTPAddr:      env("AGENTIUM_HTTP_ADDR", ":8080"),
 		ChromeBin:     os.Getenv("AGENTIUM_CHROME_BIN"),
+		Headless:      envBool("AGENTIUM_HEADLESS", false),
 		DefaultWidth:  envInt("AGENTIUM_VIEWPORT_WIDTH", 1280),
 		DefaultHeight: envInt("AGENTIUM_VIEWPORT_HEIGHT", 800),
 		UseLeakless:   envBool("AGENTIUM_LEAKLESS", true),

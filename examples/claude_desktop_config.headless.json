@@ -5,7 +5,7 @@
       "args": [
         "-mode",
         "mcp-stdio",
-        "-headless=false"
+        "-headless=true"
       ]
     }
   }

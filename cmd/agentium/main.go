@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -20,13 +19,35 @@ import (
 )
 
 func main() {
-	mode := flag.String("mode", "http", "http or mcp-stdio")
-	flag.Parse()
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	cfg := config.Load()
+	cfg, cli, err := config.ParseArgs(os.Args[1:], config.Load())
+	if err != nil {
+		log.Fatal(err)
+	}
+	if cli.PrintConfig {
+		log.Printf("mode=%s http_addr=%s headless=%t chrome_bin=%q leakless=%t viewport=%dx%d",
+			cli.Mode,
+			cfg.HTTPAddr,
+			cfg.Headless,
+			cfg.ChromeBin,
+			cfg.UseLeakless,
+			cfg.DefaultWidth,
+			cfg.DefaultHeight,
+		)
+		return
+	}
+
+	log.Printf("starting agentium mode=%s http_addr=%s headless=%t leakless=%t viewport=%dx%d",
+		cli.Mode,
+		cfg.HTTPAddr,
+		cfg.Headless,
+		cfg.UseLeakless,
+		cfg.DefaultWidth,
+		cfg.DefaultHeight,
+	)
+
 	service := app.NewService(cfg)
 	defer func() {
 		if err := service.Close(); err != nil {
@@ -34,7 +55,7 @@ func main() {
 		}
 	}()
 
-	switch *mode {
+	switch cli.Mode {
 	case "mcp-stdio":
 		if err := mcpserver.New(service).RunStdio(ctx); err != nil {
 			log.Fatal(err)
